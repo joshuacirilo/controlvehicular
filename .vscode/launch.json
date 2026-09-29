@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "App movil - Flutter Web",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "${workspaceFolder}/appmovil",
+      "program": "${workspaceFolder}/appmovil/lib/main.dart",
+      "deviceId": "chrome"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+.venv-graphify/
+.cache/
+graphify-out/
+__pycache__/

@@ -1,0 +1,5 @@
+.venv-graphify/
+.cache/
+.codex/
+.agents/
+graphify-out/
