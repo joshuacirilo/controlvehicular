@@ -114,3 +114,7 @@ Actualizar Graphify siguiendo las instrucciones de la raiz despues de cambios de
 
 Leer [Agente Flutter](../README_AGENTE_FLUTTER.md) y cumplir su regla obligatoria de consultar el grafo antes de explorar el proyecto y actualizarlo al finalizar cambios, para reducir el contexto utilizado.
 
+
+## Recordatorio solicitado por el usuario
+
+Antes de empaquetar o distribuir, recordar configurar API_BASE_URL con la URL HTTPS real del backend en Vercel, terminada en /api/. No distribuir con localhost. Consultar documentacion/FLUTTER.md en la raiz.

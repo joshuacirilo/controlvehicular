@@ -13,6 +13,11 @@ Requiere uv. Desde la raiz del proyecto:
 .\graphify.cmd --help
 ```
 
+Smart App Control de Windows bloquea los lanzadores sin firma del venv
+(`.venv-graphify/Scripts/*.exe`). Por eso `graphify.cmd` y `graphify.ps1` ejecutan
+el Python base indicado en `pyvenv.cfg` con los paquetes del venv en `PYTHONPATH`,
+y el instalador usa `uv pip install --target`. No llamar esos `.exe` directamente.
+
 La habilidad esta en `.codex/skills/graphify/` y las instrucciones en `AGENTS.md`.
 En Codex invocar `$graphify`. Los comandos .cmd funcionan desde PowerShell sin
 cambiar la politica de ejecucion de scripts de Windows.
