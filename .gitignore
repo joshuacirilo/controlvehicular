@@ -1,5 +1,6 @@
 .venv-graphify/
 .cache/
+.pnpm-store/
 graphify-out/
 __pycache__/
 

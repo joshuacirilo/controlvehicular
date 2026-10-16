@@ -1,7 +1,46 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'core/qr_credentials.dart';
+
+Rect _scanWindow(Size size) {
+  final side = math.min(math.min(size.width, size.height) * 0.7, 280.0);
+  return Rect.fromCenter(
+    center: size.center(Offset.zero),
+    width: side,
+    height: side,
+  );
+}
+
+class _ScanFramePainter extends CustomPainter {
+  const _ScanFramePainter(this.window);
+  final Rect window;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final frame = RRect.fromRectAndRadius(window, const Radius.circular(16));
+    canvas.drawPath(
+      Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRect(Offset.zero & size)
+        ..addRRect(frame),
+      Paint()..color = const Color(0x99000000),
+    );
+    canvas.drawRRect(
+      frame,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ScanFramePainter old) => old.window != window;
+}
 
 class QrLoginPage extends StatefulWidget {
   const QrLoginPage({super.key});
@@ -41,36 +80,50 @@ class _QrLoginPageState extends State<QrLoginPage> {
           const Padding(
             padding: EdgeInsets.all(20),
             child: Text(
-              'Apunta la cámara al QR de acceso. Validaremos tus credenciales con el servidor.',
+              'Coloca el QR de acceso dentro del recuadro. Validaremos tus credenciales con el servidor.',
               textAlign: TextAlign.center,
             ),
           ),
           Expanded(
             child: _accepted
                 ? const Center(child: CircularProgressIndicator())
-                : MobileScanner(
-                    onDetect: _detect,
-                    errorBuilder: (context, error) => Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.no_photography_outlined, size: 48),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'No se pudo abrir la cámara. Revisa el permiso del navegador y que exista una cámara disponible.',
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 16),
-                            TextButton(
-                              onPressed: () => Navigator.of(context).pop(),
-                              child: const Text('Volver al login'),
-                            ),
-                          ],
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final window = _scanWindow(constraints.biggest);
+                      return MobileScanner(
+                        onDetect: _detect,
+                        // The web scanner cannot locate codes inside a window.
+                        scanWindow: kIsWeb ? null : window,
+                        overlayBuilder: (context, _) => CustomPaint(
+                          size: constraints.biggest,
+                          painter: _ScanFramePainter(window),
                         ),
-                      ),
-                    ),
+                        errorBuilder: (context, error) => Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.no_photography_outlined,
+                                  size: 48,
+                                ),
+                                const SizedBox(height: 16),
+                                const Text(
+                                  'No se pudo abrir la cámara. Revisa el permiso del navegador y que exista una cámara disponible.',
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 16),
+                                TextButton(
+                                  onPressed: () => Navigator.of(context).pop(),
+                                  child: const Text('Volver al login'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
           ),
           if (_error != null)
