@@ -116,3 +116,17 @@ caracteres `[A-Za-z0-9_-]`) debe conservarse al reintentar: el indice unico
   ausente/vencido, 403 QR del camion invalido o conductor inactivo,
   404 viaje inexistente, 409 conflicto, 429 camion bloqueado por intentos fallidos,
   503 base de datos no disponible.
+
+## Flota en vivo (panel)
+
+GET /api/trucks/live (cookie `cv_admin`, `Cache-Control: no-store`) devuelve los
+viajes activos con su ultima posicion:
+
+```text
+{"trucks":[{"tripId","truckId","placa","modelo","conductor","inicio",
+  "ubicacion":{"lat","lng","velocidad","precision","timestamp"} | null}]}
+```
+
+`ubicacion` es `null` hasta que llega el primer ping. Las fechas llevan `-06:00`.
+La vista `/mapa` consulta esta ruta cada 5 s mientras la pestaña esta visible y
+muestra en gris los camiones cuyo ultimo ping tiene mas de 60 s.

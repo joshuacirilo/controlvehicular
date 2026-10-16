@@ -71,6 +71,20 @@ body {
 .map-frame { flex: 1; min-height: 360px; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #e2e8f0; }
 .fleet-map { width: 100%; height: 100%; }
 .map-loading { display: grid; place-items: center; color: #526078; font-size: 14px; }
+.map-status { margin: -8px 0 0; font-size: 14px; color: #526078; }
+.map-status.is-error { color: #b42318; }
+
+.truck-marker-icon { background: none; border: 0; }
+.truck-marker { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; transform: translate(-50%, calc(-100% + 8px)); }
+.truck-marker-label { padding: 2px 8px; border-radius: 999px; background: #4338ca; color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgb(15 23 42 / 0.3); }
+.truck-marker-dot { width: 16px; height: 16px; border: 3px solid #fff; border-radius: 50%; background: #4338ca; box-shadow: 0 0 0 2px #4338ca, 0 2px 6px rgb(15 23 42 / 0.4); }
+.truck-marker.is-stale .truck-marker-label, .truck-marker.is-stale .truck-marker-dot { background: #94a3b8; }
+.truck-marker.is-stale .truck-marker-dot { box-shadow: 0 0 0 2px #94a3b8, 0 2px 6px rgb(15 23 42 / 0.4); }
+.truck-popup { display: flex; flex-direction: column; gap: 2px; min-width: 180px; font-size: 13px; }
+.truck-popup strong { font-size: 15px; }
+.truck-popup dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0 0; }
+.truck-popup dt { color: #526078; }
+.truck-popup dd { margin: 0; font-weight: 600; }
 
 @media (max-width: 768px) {
   .sidebar { width: 68px; padding: 20px 10px; }
