@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".venv-graphify/Scripts/graphify.exe hook-check"
+            "command": ".\\graphify.cmd hook-check"
           }
         ]
       }

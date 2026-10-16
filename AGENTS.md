@@ -1,6 +1,6 @@
 ## graphify
 
-Graphify is installed locally in `.venv-graphify/`. On Windows PowerShell, replace `graphify` in the instructions below with `.\graphify.cmd`, or use `.venv-graphify/Scripts/graphify.exe` directly. Use `.venv-graphify/Scripts/python.exe` for Python extraction steps instead of installing another global copy.
+Graphify is installed locally in `.venv-graphify/`. On Windows PowerShell, replace `graphify` in the instructions below with `.\graphify.cmd`. Do not call `.venv-graphify/Scripts/graphify.exe` or `.venv-graphify/Scripts/python.exe` directly: Smart App Control blocks those unsigned launchers. For Python extraction steps, use the base interpreter from the `home` entry in `.venv-graphify/pyvenv.cfg` with `PYTHONPATH` set to `.venv-graphify/Lib/site-packages`, as `graphify.cmd` does, instead of installing another global copy.
 
 The knowledge graph is generated at graphify-out/ once project source files exist. If no graph exists, inspect source normally or build it with `.\graphify.cmd extract . --code-only`. Do not assume a graph exists in a fresh checkout. Restore the local tool with `.\scripts\install-graphify.cmd`.
 
