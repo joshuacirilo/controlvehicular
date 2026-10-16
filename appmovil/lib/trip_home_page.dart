@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/brand.dart';
 import 'core/qr_credentials.dart';
 import 'core/trip_tracker.dart';
 import 'qr_scan_page.dart';
@@ -57,10 +58,14 @@ class TripHomePage extends StatelessWidget {
       final status = tracker.status;
       final blocked = tracker.sessionExpired;
       return Scaffold(
-        backgroundColor: const Color(0xfff1f5f9),
         appBar: AppBar(
-          title: const Text('Control vehicular'),
-          backgroundColor: const Color(0xfff1f5f9),
+          title: const Row(
+            children: [
+              BrandMark(size: 32),
+              SizedBox(width: 12),
+              Text('Control vehicular'),
+            ],
+          ),
           actions: [
             IconButton(
               onPressed: () => _logout(context),
@@ -89,7 +94,7 @@ class TripHomePage extends StatelessWidget {
                           ? '¿Qué deseas hacer hoy?'
                           : 'Tienes un viaje en curso.',
                       style: const TextStyle(
-                        color: Color(0xff526078),
+                        color: BrandColors.muted,
                         fontSize: 16,
                       ),
                     ),
@@ -107,7 +112,7 @@ class TripHomePage extends StatelessWidget {
                           : null,
                       style: _bigButton(
                         FilledButton.styleFrom(
-                          backgroundColor: const Color(0xff4338ca),
+                          backgroundColor: BrandColors.blue,
                           foregroundColor: Colors.white,
                         ),
                       ),
@@ -154,7 +159,7 @@ class TripHomePage extends StatelessWidget {
                     const Text(
                       'Durante el viaje mantén la app abierta: la ubicación se envía cada 5 segundos.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: Color(0xff526078)),
+                      style: TextStyle(fontSize: 13, color: BrandColors.muted),
                     ),
                   ],
                 ),
@@ -219,7 +224,7 @@ class _ActiveTripCard extends StatelessWidget {
               children: [
                 const Icon(
                   Icons.local_shipping_outlined,
-                  color: Color(0xff4338ca),
+                  color: BrandColors.blue,
                 ),
                 const SizedBox(width: 8),
                 Expanded(

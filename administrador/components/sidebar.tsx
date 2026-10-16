@@ -1,4 +1,5 @@
 'use client';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -34,7 +35,7 @@ export function Sidebar({ user }: { user: { username: string; nombre: string } }
 
   return <aside className="sidebar" aria-label="Navegación principal">
     <div className="sidebar-brand">
-      <span className="brand-mark sidebar-mark" aria-hidden="true">CV</span>
+      <Image src="/brand-icon.png" alt="" width={36} height={36} className="brand-mark sidebar-mark" />
       <span className="sidebar-label">Control vehicular</span>
     </div>
     <nav className="sidebar-nav">

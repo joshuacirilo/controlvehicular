@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Navy from the app icon. -->
+    <color name="brand_navy">#01215A</color>
+</resources>

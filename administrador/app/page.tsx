@@ -1,4 +1,5 @@
 'use client';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
@@ -31,7 +32,7 @@ export default function Home() {
   }
   return <main className="login-shell">
     <section className="login-card" aria-label="Acceso al panel">
-      <div className="brand-mark" aria-hidden="true">CV</div>
+      <Image src="/brand-icon.png" alt="" width={56} height={56} className="brand-mark" preload />
       <p className="eyebrow">CONTROL VEHICULAR · ADMIN</p>
       <h1>Bienvenido</h1><p>Ingresa con tu cuenta de administrador.</p>
       <form onSubmit={login} aria-busy={busy}>

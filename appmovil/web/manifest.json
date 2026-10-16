@@ -1,11 +1,11 @@
 {
-    "name": "control_vehicular",
-    "short_name": "control_vehicular",
+    "name": "Control vehicular",
+    "short_name": "Control vehicular",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#01215A",
+    "theme_color": "#01215A",
+    "description": "App del piloto para iniciar viajes y enviar su ubicación.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

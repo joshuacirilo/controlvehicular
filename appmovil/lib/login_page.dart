@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
+import 'core/brand.dart';
 import 'core/qr_credentials.dart';
 import 'core/trip_tracker.dart';
 import 'qr_scan_page.dart';
@@ -121,142 +122,155 @@ class _LoginPageState extends State<LoginPage> {
           }),
         )
       : Scaffold(
-          backgroundColor: const Color(0xfff1f5f9),
-          body: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  child: Card(
-                    elevation: 0,
-                    color: Colors.white,
-                    child: Padding(
-                      padding: const EdgeInsets.all(28),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Align(
-                            alignment: Alignment.centerLeft,
-                            child: CircleAvatar(
-                              backgroundColor: Color(0xff4338ca),
-                              foregroundColor: Colors.white,
-                              child: Icon(Icons.local_shipping_outlined),
+          backgroundColor: BrandColors.navy,
+          body: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment.topCenter,
+                radius: 1.4,
+                colors: [
+                  Color(0xff0b5fd6),
+                  BrandColors.navyLight,
+                  BrandColors.navy,
+                ],
+                stops: [0, 0.45, 1],
+              ),
+            ),
+            child: SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Card(
+                      elevation: 0,
+                      color: Colors.white,
+                      child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: BrandMark(),
                             ),
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'CONTROL VEHICULAR',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.5,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          Text(
-                            'Bienvenido',
-                            style: Theme.of(context).textTheme.headlineMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text('Ingresa con tu usuario de piloto.'),
-                          const SizedBox(height: 24),
-                          Form(
-                            key: _form,
-                            child: AutofillGroup(
-                              child: Column(
-                                children: [
-                                  TextFormField(
-                                    controller: _username,
-                                    enabled: !_busy,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Usuario',
-                                      border: OutlineInputBorder(),
-                                      prefixIcon: Icon(Icons.person_outline),
-                                    ),
-                                    autofillHints: const [
-                                      AutofillHints.username,
-                                    ],
-                                    textInputAction: TextInputAction.next,
-                                    autocorrect: false,
-                                    validator: (v) =>
-                                        v == null || v.trim().isEmpty
-                                        ? 'Ingresa tu usuario'
-                                        : v.length > 80
-                                        ? 'Usuario demasiado largo'
-                                        : null,
-                                  ),
-                                  const SizedBox(height: 18),
-                                  TextFormField(
-                                    controller: _password,
-                                    enabled: !_busy,
-                                    obscureText: !_visible,
-                                    decoration: InputDecoration(
-                                      labelText: 'Contraseña',
-                                      border: const OutlineInputBorder(),
-                                      suffixIcon: IconButton(
-                                        tooltip: _visible
-                                            ? 'Ocultar contraseña'
-                                            : 'Mostrar contraseña',
-                                        onPressed: () => setState(
-                                          () => _visible = !_visible,
-                                        ),
-                                        icon: Icon(
-                                          _visible
-                                              ? Icons.visibility_off_outlined
-                                              : Icons.visibility_outlined,
-                                        ),
-                                      ),
-                                    ),
-                                    autofillHints: const [
-                                      AutofillHints.password,
-                                    ],
-                                    textInputAction: TextInputAction.done,
-                                    autocorrect: false,
-                                    enableSuggestions: false,
-                                    onFieldSubmitted: (_) => _login(),
-                                    validator: (v) => v == null || v.isEmpty
-                                        ? 'Ingresa tu contraseña'
-                                        : v.length > 128
-                                        ? 'Contraseña demasiado larga'
-                                        : null,
-                                  ),
-                                ],
+                            const SizedBox(height: 20),
+                            const Text(
+                              'CONTROL VEHICULAR',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.5,
+                                fontSize: 12,
+                                color: BrandColors.blue,
                               ),
                             ),
-                          ),
-                          if (_error != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16),
-                              child: Semantics(
-                                liveRegion: true,
-                                child: Text(
-                                  _error!,
-                                  style: const TextStyle(
-                                    color: Color(0xffb42318),
-                                  ),
+                            const SizedBox(height: 24),
+                            Text(
+                              'Bienvenido',
+                              style: Theme.of(context).textTheme.headlineMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text('Ingresa con tu usuario de piloto.'),
+                            const SizedBox(height: 24),
+                            Form(
+                              key: _form,
+                              child: AutofillGroup(
+                                child: Column(
+                                  children: [
+                                    TextFormField(
+                                      controller: _username,
+                                      enabled: !_busy,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Usuario',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.person_outline),
+                                      ),
+                                      autofillHints: const [
+                                        AutofillHints.username,
+                                      ],
+                                      textInputAction: TextInputAction.next,
+                                      autocorrect: false,
+                                      validator: (v) =>
+                                          v == null || v.trim().isEmpty
+                                          ? 'Ingresa tu usuario'
+                                          : v.length > 80
+                                          ? 'Usuario demasiado largo'
+                                          : null,
+                                    ),
+                                    const SizedBox(height: 18),
+                                    TextFormField(
+                                      controller: _password,
+                                      enabled: !_busy,
+                                      obscureText: !_visible,
+                                      decoration: InputDecoration(
+                                        labelText: 'Contraseña',
+                                        border: const OutlineInputBorder(),
+                                        suffixIcon: IconButton(
+                                          tooltip: _visible
+                                              ? 'Ocultar contraseña'
+                                              : 'Mostrar contraseña',
+                                          onPressed: () => setState(
+                                            () => _visible = !_visible,
+                                          ),
+                                          icon: Icon(
+                                            _visible
+                                                ? Icons.visibility_off_outlined
+                                                : Icons.visibility_outlined,
+                                          ),
+                                        ),
+                                      ),
+                                      autofillHints: const [
+                                        AutofillHints.password,
+                                      ],
+                                      textInputAction: TextInputAction.done,
+                                      autocorrect: false,
+                                      enableSuggestions: false,
+                                      onFieldSubmitted: (_) => _login(),
+                                      validator: (v) => v == null || v.isEmpty
+                                          ? 'Ingresa tu contraseña'
+                                          : v.length > 128
+                                          ? 'Contraseña demasiado larga'
+                                          : null,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          const SizedBox(height: 24),
-                          FilledButton(
-                            onPressed: _busy || _scanning || _api == null
-                                ? null
-                                : _login,
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Text(_busy ? 'Conectando...' : 'Ingresar'),
+                            if (_error != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 16),
+                                child: Semantics(
+                                  liveRegion: true,
+                                  child: Text(
+                                    _error!,
+                                    style: const TextStyle(
+                                      color: Color(0xffb42318),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 24),
+                            FilledButton(
+                              onPressed: _busy || _scanning || _api == null
+                                  ? null
+                                  : _login,
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Text(
+                                  _busy ? 'Conectando...' : 'Ingresar',
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: _busy || _scanning || _api == null
-                                ? null
-                                : _scanQr,
-                            icon: const Icon(Icons.qr_code_scanner),
-                            label: const Text('Ingresar con QR'),
-                          ),
-                        ],
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _busy || _scanning || _api == null
+                                  ? null
+                                  : _scanQr,
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text('Ingresar con QR'),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
