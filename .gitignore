@@ -2,3 +2,13 @@
 .cache/
 graphify-out/
 __pycache__/
+
+# Configuracion local de Atlas y script privado de inicializacion
+/appmovil/atlas-credentials.env
+/appmovil/01_crear_trucks_db.md
+
+# Local secrets in any module
+.env
+.env.*
+*.env
+!.env.example
