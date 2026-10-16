@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:control_vehicular/core/api_client.dart';
 import 'package:control_vehicular/core/qr_credentials.dart';
+import 'package:control_vehicular/core/truck_qr.dart';
 import 'package:control_vehicular/login_page.dart';
 
 void main() {
@@ -20,6 +21,11 @@ void main() {
       'usuario=prueba1\r\ncontrasena=123\n',
       'Username: prueba1\nPassword: 123',
     ]) {
+      expect(
+        () => parseTruckQr(labeled),
+        throwsFormatException,
+        reason: 'login QR must not start a trip',
+      );
       final parsed = QrCredentials.parse(labeled);
       expect(parsed.username, 'prueba1');
       expect(parsed.password, '123');
@@ -57,7 +63,7 @@ void main() {
           });
           return accepted
               ? http.Response(
-                  '{"mode":"test","user":{"name":"Usuario de prueba"}}',
+                  '{"mode":"test","user":{"name":"Usuario de prueba"},"token":"t"}',
                   200,
                 )
               : http.Response('{}', 401);

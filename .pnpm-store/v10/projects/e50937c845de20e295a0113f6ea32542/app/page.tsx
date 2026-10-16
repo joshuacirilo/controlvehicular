@@ -1,9 +1,10 @@
 'use client';
+import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
+import { saveSessionUser } from '@/lib/session';
 
-type User = { id: string; username: string; name: string };
 export default function Home() {
-  const [user, setUser] = useState<User | null>(null);
+  const router = useRouter();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -25,8 +26,11 @@ export default function Home() {
         return;
       }
       const result = await response.json();
-      if (result.mode !== 'test' || typeof result.user?.name !== 'string') throw new Error('Invalid response');
-      form.reset(); setUser(result.user);
+      const user = result?.user;
+      if (result?.mode !== 'test' || typeof user?.id !== 'string' || typeof user?.username !== 'string' ||
+          typeof user?.name !== 'string') throw new Error('Invalid response');
+      saveSessionUser({ id: user.id, username: user.username, name: user.name });
+      router.replace('/dashboard');
     } catch { setError('No se pudo conectar con el servidor. Intenta de nuevo.'); }
     finally { setBusy(false); }
   }
@@ -35,26 +39,19 @@ export default function Home() {
       <div className="brand-mark" aria-hidden="true">CV</div>
       <p className="eyebrow">CONTROL VEHICULAR · ADMIN</p>
       <span className="test-badge">Entorno de prueba</span>
-      {user ? <div role="status">
-        <h1>Hola, {user.name}</h1>
-        <p>El backend validó tus credenciales correctamente.</p>
-        <p className="login-note">Prueba de conexión completada. No se ha creado una sesión de producción.</p>
-        <button className="primary-button" onClick={() => { setUser(null); setError(''); }}>Volver al inicio</button>
-      </div> : <>
-        <h1>Bienvenido</h1><p>Ingresa para probar el acceso al panel.</p>
-        <form onSubmit={login} aria-busy={busy}>
-          <label htmlFor="username">Usuario</label>
-          <input id="username" name="username" autoComplete="username" placeholder="Tu usuario" required maxLength={80} disabled={busy} />
-          <label htmlFor="password">Contraseña</label>
-          <div className="password-field">
-            <input id="password" name="password" type={visible ? 'text' : 'password'} autoComplete="current-password" placeholder="Tu contraseña" required maxLength={128} disabled={busy} />
-            <button type="button" onClick={() => setVisible(!visible)} aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}>{visible ? 'Ocultar' : 'Mostrar'}</button>
-          </div>
-          {error && <p className="login-error" role="alert">{error}</p>}
-          <button className="primary-button" disabled={busy}>{busy ? 'Conectando…' : 'Ingresar'}</button>
-        </form>
-        <p className="login-note">Acceso temporal con usuarios de prueba. No requiere conexión con Atlas.</p>
-      </>}
+      <h1>Bienvenido</h1><p>Ingresa para probar el acceso al panel.</p>
+      <form onSubmit={login} aria-busy={busy}>
+        <label htmlFor="username">Usuario</label>
+        <input id="username" name="username" autoComplete="username" placeholder="Tu usuario" required maxLength={80} disabled={busy} />
+        <label htmlFor="password">Contraseña</label>
+        <div className="password-field">
+          <input id="password" name="password" type={visible ? 'text' : 'password'} autoComplete="current-password" placeholder="Tu contraseña" required maxLength={128} disabled={busy} />
+          <button type="button" onClick={() => setVisible(!visible)} aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}>{visible ? 'Ocultar' : 'Mostrar'}</button>
+        </div>
+        {error && <p className="login-error" role="alert">{error}</p>}
+        <button className="primary-button" disabled={busy}>{busy ? 'Conectando…' : 'Ingresar'}</button>
+      </form>
+      <p className="login-note">Acceso temporal con usuarios de prueba. No requiere conexión con Atlas.</p>
     </section>
   </main>;
 }

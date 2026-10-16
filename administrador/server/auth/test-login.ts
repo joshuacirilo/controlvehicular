@@ -7,5 +7,5 @@ export function verifyTestLogin(username: string, password: string) {
   if (!user) return null;
   const hash = scryptSync(password, user.salt, 64);
   if (!timingSafeEqual(hash, Buffer.from(user.passwordHash, 'hex'))) return null;
-  return { id: user.id, username: user.username, name: user.name };
+  return { id: user.id, username: user.username, name: user.name, driverId: user.driverId };
 }

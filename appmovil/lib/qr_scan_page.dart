@@ -4,8 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import 'core/qr_credentials.dart';
-
 Rect _scanWindow(Size size) {
   final side = math.min(math.min(size.width, size.height) * 0.7, 280.0);
   return Rect.fromCenter(
@@ -42,13 +40,23 @@ class _ScanFramePainter extends CustomPainter {
   bool shouldRepaint(_ScanFramePainter old) => old.window != window;
 }
 
-class QrLoginPage extends StatefulWidget {
-  const QrLoginPage({super.key});
+/// Scans QR codes until [parse] accepts one, then pops with its result.
+/// [parse] must throw [FormatException] with a user-facing message to reject.
+class QrScanPage<T> extends StatefulWidget {
+  const QrScanPage({
+    super.key,
+    required this.title,
+    required this.instructions,
+    required this.parse,
+  });
+  final String title;
+  final String instructions;
+  final T Function(String raw) parse;
   @override
-  State<QrLoginPage> createState() => _QrLoginPageState();
+  State<QrScanPage<T>> createState() => _QrScanPageState<T>();
 }
 
-class _QrLoginPageState extends State<QrLoginPage> {
+class _QrScanPageState<T> extends State<QrScanPage<T>> {
   bool _accepted = false;
   String? _error;
   void _detect(BarcodeCapture capture) {
@@ -58,11 +66,11 @@ class _QrLoginPageState extends State<QrLoginPage> {
         continue;
       }
       try {
-        final credentials = QrCredentials.parse(barcode.rawValue!);
+        final result = widget.parse(barcode.rawValue!);
         // Ignore repeated frames and remove the scanner to release the camera.
         setState(() => _accepted = true);
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.of(context).pop(credentials);
+          if (mounted) Navigator.of(context).pop(result);
         });
         return;
       } on FormatException catch (e) {
@@ -73,16 +81,13 @@ class _QrLoginPageState extends State<QrLoginPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Ingresar con QR')),
+    appBar: AppBar(title: Text(widget.title)),
     body: SafeArea(
       child: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.all(20),
-            child: Text(
-              'Coloca el QR de acceso dentro del recuadro. Validaremos tus credenciales con el servidor.',
-              textAlign: TextAlign.center,
-            ),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(widget.instructions, textAlign: TextAlign.center),
           ),
           Expanded(
             child: _accepted
@@ -116,7 +121,7 @@ class _QrLoginPageState extends State<QrLoginPage> {
                                 const SizedBox(height: 16),
                                 TextButton(
                                   onPressed: () => Navigator.of(context).pop(),
-                                  child: const Text('Volver al login'),
+                                  child: const Text('Volver'),
                                 ),
                               ],
                             ),

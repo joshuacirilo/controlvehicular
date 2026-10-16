@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
 import 'core/qr_credentials.dart';
-import 'qr_login_page.dart';
+import 'core/trip_tracker.dart';
+import 'qr_scan_page.dart';
 import 'trip_home_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -21,6 +22,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _busy = false, _visible = false;
   bool _scanning = false;
   String? _error, _name;
+  TripTracker? _tracker;
   @override
   void initState() {
     super.initState();
@@ -46,7 +48,15 @@ class _LoginPageState extends State<LoginPage> {
       final credentials =
           await (widget.scanQr?.call(context) ??
               Navigator.of(context).push<QrCredentials>(
-                MaterialPageRoute(builder: (_) => const QrLoginPage()),
+                MaterialPageRoute(
+                  builder: (_) => const QrScanPage<QrCredentials>(
+                    title: 'Ingresar con QR',
+                    instructions:
+                        'Coloca el QR de acceso dentro del recuadro. '
+                        'Validaremos tus credenciales con el servidor.',
+                    parse: QrCredentials.parse,
+                  ),
+                ),
               ));
       if (!mounted || credentials == null) return;
       await _authenticate(credentials.username, credentials.password);
@@ -62,10 +72,13 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     try {
-      final name = await _api!.login(username, password);
+      final session = await _api!.login(username, password);
       if (!mounted) return;
       _password.clear();
-      if (mounted) setState(() => _name = name);
+      setState(() {
+        _name = session.name;
+        _tracker = TripTracker(api: _api!, token: session.token);
+      });
     } on LoginException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -82,6 +95,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _tracker?.dispose();
     _username.dispose();
     _password.dispose();
     if (widget.api == null) _api?.close();
@@ -89,10 +103,13 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   @override
-  Widget build(BuildContext context) => _name != null
+  Widget build(BuildContext context) => _name != null && _tracker != null
       ? TripHomePage(
           name: _name!,
+          tracker: _tracker!,
           onLogout: () => setState(() {
+            _tracker?.dispose();
+            _tracker = null;
             _name = null;
             _error = null;
             _visible = false;

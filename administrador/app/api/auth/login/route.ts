@@ -1,5 +1,6 @@
 import { corsHeaders } from '@/server/cors';
 import { verifyTestLogin } from '@/server/auth/test-login';
+import { issueDriverToken } from '@/server/auth/session';
 
 export const runtime = 'nodejs';
 export async function POST(request: Request) {
@@ -21,8 +22,9 @@ export async function POST(request: Request) {
   }
   const user = verifyTestLogin(body.username.trim(), body.password);
   if (!user) return Response.json({ message: 'Usuario o contraseña incorrectos.' }, { status: 401, headers });
-  // Connectivity demo only: no session, token, or access to protected resources.
-  return Response.json({ mode: 'test', user }, { headers });
+  const { token, expiresAt } = issueDriverToken(user);
+  return Response.json({ mode: 'test', user: { id: user.id, username: user.username, name: user.name }, token, expiresAt },
+    { headers });
 }
 export function OPTIONS(request: Request) {
   return new Response(null, { status: 204, headers: corsHeaders(request) });
