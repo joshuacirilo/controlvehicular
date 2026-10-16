@@ -7,7 +7,12 @@
       "type": "dart",
       "cwd": "${workspaceFolder}/appmovil",
       "program": "${workspaceFolder}/appmovil/lib/main.dart",
-      "deviceId": "chrome"
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--web-port",
+        "8080",
+        "--dart-define=API_BASE_URL=http://localhost:3000/api/"
+      ]
     }
   ]
 }

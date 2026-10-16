@@ -66,3 +66,29 @@ El requisito iOS permanece pendiente de configuracion y validacion en su platafo
 - https://docs.flutter.dev/install/manual
 - https://docs.flutter.dev/platform-integration/web/setup
 - https://docs.flutter.dev/platform-integration/android/setup
+
+## Conexion con el backend local
+
+Levantar administrador con `npm run dev` (puerto 3000) y ejecutar
+`./scripts/run-flutter-web.cmd` desde la raiz (Flutter web, puerto 8080).
+La pantalla comprueba GET /api/health y permite reintentar. No comprueba Atlas.
+La plantilla del contador fue reemplazada por esta comprobacion de conexion.
+
+## Recordatorio obligatorio antes de empaquetar
+
+Antes de generar una version de distribucion, recordar al usuario configurar
+`--dart-define=API_BASE_URL=https://DOMINIO-REAL.vercel.app/api/`.
+La URL definitiva sigue pendiente; no usar el ejemplo como destino real.
+En release la aplicacion rechaza URL ausente, HTTP o localhost.
+La URL publica no debe contener credenciales. En Vercel configurar
+CORS_ALLOWED_ORIGINS con los origenes HTTPS reales del cliente web, separados por comas.
+En desarrollo se permiten localhost:8080 y 127.0.0.1:8080.
+En un telefono localhost apunta al telefono: estas instrucciones locales son para Chrome en la PC.
+No se genero APK/AAB ni se valido Android.
+
+## Login temporal local
+
+La pantalla inicial ahora es un formulario de login. Usar `prueba1` y `123`
+con el backend levantado mediante `npm run dev`. Admin usa el mismo endpoint.
+La confirmacion indica que el backend valido las credenciales; no existe aun
+una sesion persistente ni acceso a datos. Al recargar se vuelve al formulario.
