@@ -92,3 +92,21 @@ La pantalla inicial ahora es un formulario de login. Usar `prueba1` y `123`
 con el backend levantado mediante `npm run dev`. Admin usa el mismo endpoint.
 La confirmacion indica que el backend valido las credenciales; no existe aun
 una sesion persistente ni acceso a datos. Al recargar se vuelve al formulario.
+
+## Acceso con QR de credenciales (prueba local)
+
+En el login seleccionar **Ingresar con QR**, permitir la camara y apuntar al QR.
+Contenido exacto de ejemplo: `{"username":"prueba1","password":"123"}`.
+Ambos valores deben ser strings. La app valida el formato y envia POST /api/auth/login
+a la API configurada; solo muestra exito tras la respuesta del backend.
+Un QR malformado permite seguir escaneando; credenciales rechazadas vuelven al login.
+La camara se cierra al leer un QR valido o al cancelar. No se guardan credenciales del QR.
+En Chrome usar localhost o HTTPS. Ante permiso rechazado, habilitarlo en el navegador
+y volver a abrir el escaner. Este QR expone la clave a quien lo lea: solo datos de prueba.
+No se verifico la camara fisica ni Android; no se genero APK/AAB.
+
+## Inicio del conductor
+
+Tras login manual o QR se muestra la pantalla con Iniciar viaje y Terminar viaje.
+Por ahora ambos botones muestran un aviso de funcion pendiente: no llaman a la API
+ni cambian el estado de viajes. El icono superior permite volver al login.

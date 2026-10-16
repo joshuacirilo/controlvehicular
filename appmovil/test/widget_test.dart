@@ -38,7 +38,7 @@ void main() {
     await tester.tap(find.text('Ingresar'));
     await tester.pumpAndSettle();
     expect(find.text('Hola, Usuario de prueba'), findsOneWidget);
-    await tester.tap(find.text('Volver al inicio'));
+    await tester.tap(find.byTooltip('Cerrar sesión'));
     await tester.pumpAndSettle();
     expect(find.text('Ingresar'), findsOneWidget);
   });
