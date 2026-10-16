@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'core/qr_credentials.dart';
 import 'core/trip_tracker.dart';
-import 'core/truck_qr.dart';
 import 'qr_scan_page.dart';
 
 class TripHomePage extends StatelessWidget {
@@ -15,25 +15,25 @@ class TripHomePage extends StatelessWidget {
   final String name;
   final TripTracker tracker;
   final VoidCallback onLogout;
-  final Future<String?> Function(BuildContext)? scanTruckQr;
+  final Future<TruckCredentials?> Function(BuildContext)? scanTruckQr;
 
-  Future<String?> _scanTruck(BuildContext context) =>
-      Navigator.of(context).push<String>(
+  Future<TruckCredentials?> _scanTruck(BuildContext context) =>
+      Navigator.of(context).push<TruckCredentials>(
         MaterialPageRoute(
-          builder: (_) => const QrScanPage<String>(
+          builder: (_) => const QrScanPage<TruckCredentials>(
             title: 'QR del camión',
             instructions:
                 'Escanea el QR del camión para iniciar el viaje. '
                 'Después enviaremos tu ubicación cada 5 segundos.',
-            parse: parseTruckQr,
+            parse: TruckCredentials.parse,
           ),
         ),
       );
 
   Future<void> _start(BuildContext context) async {
-    final qrCode = await (scanTruckQr ?? _scanTruck)(context);
-    if (qrCode == null || !context.mounted) return;
-    await tracker.start(qrCode);
+    final truck = await (scanTruckQr ?? _scanTruck)(context);
+    if (truck == null || !context.mounted) return;
+    await tracker.start(truck);
   }
 
   void _logout(BuildContext context) {
@@ -331,8 +331,8 @@ class _SessionExpiredCard extends StatelessWidget {
             child: Text(
               pending > 0
                   ? 'Tu sesión venció. Hay $pending ubicaciones sin enviar que se perderán al salir. '
-                        'Vuelve a iniciar sesión y escanea el mismo camión para continuar el viaje.'
-                  : 'Tu sesión venció. Vuelve a iniciar sesión y escanea el mismo camión para continuar el viaje.',
+                        'Vuelve a iniciar sesión con el mismo camión para continuar el viaje.'
+                  : 'Tu sesión venció. Vuelve a iniciar sesión con el mismo camión para continuar el viaje.',
               style: const TextStyle(color: Color(0xffb42318)),
             ),
           ),

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'qr_credentials.dart';
+
 Uri apiBaseUrl({
   String value = const String.fromEnvironment('API_BASE_URL'),
   bool release = kReleaseMode,
@@ -49,6 +51,7 @@ class ApiClient {
     }
   }
 
+  /// Signs in the pilot; trips are recorded under this account.
   Future<AuthSession> login(String username, String password) async {
     final response = await _client
         .post(
@@ -56,21 +59,24 @@ class ApiClient {
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({'username': username.trim(), 'password': password}),
         )
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 15));
+    dynamic data;
+    try {
+      data = jsonDecode(response.body);
+    } on FormatException {
+      data = null;
+    }
     if (response.statusCode == 401) {
       throw const LoginException('Usuario o contraseña incorrectos.');
     }
-    if (response.statusCode == 403) {
-      throw const LoginException(
-        'El acceso de prueba solo funciona en desarrollo local.',
+    if (response.statusCode != 200) {
+      throw LoginException(
+        data is Map && data['message'] is String
+            ? data['message'] as String
+            : 'No se pudo ingresar. Intenta de nuevo.',
       );
     }
-    if (response.statusCode != 200) {
-      throw const LoginException('No se pudo ingresar. Intenta de nuevo.');
-    }
-    final data = jsonDecode(response.body);
     if (data is! Map ||
-        data['mode'] != 'test' ||
         data['user'] is! Map ||
         data['user']['name'] is! String ||
         data['token'] is! String) {
@@ -79,25 +85,25 @@ class ApiClient {
     return AuthSession(data['user']['name'] as String, data['token'] as String);
   }
 
+  /// Starts a trip with the scanned truck QR, required for every trip.
   Future<TripInfo> startTrip(
     String token,
-    String qrCode,
+    TruckCredentials truck,
     PingSample firstPing,
   ) async {
     final data = await _post('trips/start', token, {
-      'qrCode': qrCode,
+      'placa': truck.plate,
+      'password': truck.password,
       'ping': firstPing.toJson(),
     });
-    final truck = data['truck'];
-    if (data['tripId'] is! String ||
-        truck is! Map ||
-        truck['placa'] is! String) {
+    final info = data['truck'];
+    if (data['tripId'] is! String || info is! Map || info['placa'] is! String) {
       throw const ApiException('Respuesta del servidor inesperada.');
     }
     return TripInfo(
       id: data['tripId'] as String,
-      plate: truck['placa'] as String,
-      model: truck['modelo'] is String ? truck['modelo'] as String : '',
+      plate: info['placa'] as String,
+      model: info['modelo'] is String ? info['modelo'] as String : '',
     );
   }
 

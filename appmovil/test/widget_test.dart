@@ -20,7 +20,7 @@ void main() {
         if (body['password'] != '123') return http.Response('{}', 401);
         expect(body['username'], 'prueba1');
         return http.Response(
-          '{"mode":"test","user":{"name":"Usuario de prueba"},"token":"t"}',
+          '{"mode":"usuario","user":{"name":"Usuario de prueba"},"token":"t"}',
           200,
         );
       }),

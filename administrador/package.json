@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:check": "node scripts/check-db.mjs"
+    "db:check": "node scripts/check-db.mjs",
+    "admin:create": "node scripts/create-admin.mjs",
+    "truck:create": "node scripts/create-truck.mjs"
   },
   "dependencies": {
     "@next/env": "16.3.6",

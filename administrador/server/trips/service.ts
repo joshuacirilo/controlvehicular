@@ -1,7 +1,9 @@
 import 'server-only';
 import { MongoServerError, ObjectId } from 'mongodb';
+import { verifyTruck } from '@/server/auth/driver-login';
 import type { DriverSession } from '@/server/auth/session';
 import { getDb } from '@/server/db/mongo';
+import { formatGuatemala, guatemalaNow, toGuatemala } from '@/server/time';
 import { speedKmh, type PingInput } from '@/server/trips/pings';
 
 const START_TOLERANCE_MS = 5 * 60 * 1000;
@@ -41,23 +43,27 @@ async function collections() {
   return {
     trips: db.collection<Trip>('trips'),
     pings: db.collection<LocationPing>('locationPings'),
-    trucks: db.collection<{ _id: ObjectId; placa: string; modelo: string; qrCode: string; activo: boolean }>('trucks'),
     drivers: db.collection<{ _id: ObjectId; activo: boolean }>('drivers'),
   };
 }
 
+/** Credentials read from the truck QR; every trip start must present them. */
+export type TruckQr = { placa: string; password: string };
+
 /**
- * Starts a trip for the authenticated driver on the truck identified by its QR.
+ * Starts a trip for the signed-in pilot on the truck whose QR credentials were scanned.
  * Retrying with the same truck while the trip is active returns that trip.
  */
-export async function startTrip(session: DriverSession, qrCode: string, firstPing: PingInput | null) {
-  const { trips, trucks, drivers } = await collections();
+export async function startTrip(session: DriverSession, qr: TruckQr | null, firstPing: PingInput | null) {
+  if (!qr) return fail(400, 'Escanea el QR del camión para iniciar el viaje.');
+  const { trips, drivers } = await collections();
   const driverId = new ObjectId(session.driverId);
   if (!await drivers.findOne({ _id: driverId, activo: true }, { projection: { _id: 1 } })) {
     return fail(403, 'Tu usuario no está vinculado a un conductor activo.');
   }
-  const truck = await trucks.findOne({ qrCode, activo: true }, { projection: { placa: 1, modelo: 1 } });
-  if (!truck) return fail(404, 'El QR no corresponde a un camión activo.');
+  const verified = await verifyTruck(qr.placa, qr.password);
+  if (!verified.ok) return verified;
+  const truck = verified.body;
 
   let trip = await trips.findOne({ driverId, estado: 'activo' });
   const resumed = trip !== null;
@@ -65,7 +71,7 @@ export async function startTrip(session: DriverSession, qrCode: string, firstPin
     return fail(409, 'Ya tienes un viaje activo con otro camión. Termínalo antes de iniciar uno nuevo.');
   }
   if (!trip) {
-    const now = new Date();
+    const now = guatemalaNow();
     const candidate: Trip = {
       _id: new ObjectId(), truckId: truck._id, driverId, rutaPlaneada: null,
       estado: 'activo', inicio: now, fin: null, createdAt: now, updatedAt: now,
@@ -85,7 +91,7 @@ export async function startTrip(session: DriverSession, qrCode: string, firstPin
     status: resumed ? 200 : 201,
     body: {
       tripId: trip._id.toHexString(),
-      inicio: trip.inicio.toISOString(),
+      inicio: formatGuatemala(trip.inicio),
       resumed,
       truck: { placa: truck.placa, modelo: truck.modelo },
     },
@@ -96,8 +102,9 @@ async function storePings(trip: Trip, input: PingInput[]) {
   const { pings } = await collections();
   const accepted: string[] = [];
   const rejected: { pingId: string; reason: string }[] = [];
-  const receivedAt = new Date();
-  for (const ping of [...input].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())) {
+  const receivedAt = guatemalaNow();
+  const local = input.map(ping => ({ ...ping, timestamp: toGuatemala(ping.timestamp) }));
+  for (const ping of local.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())) {
     // Samples taken before the close are still valid history after the trip ends.
     if (trip.fin && ping.timestamp > trip.fin) {
       rejected.push({ pingId: ping.pingId, reason: 'trip_closed' });
@@ -147,7 +154,7 @@ export async function recordPings(session: DriverSession, tripId: ObjectId, inpu
       estado: trip.estado,
       accepted,
       rejected,
-      latest: latest && { velocidad: latest.velocidad, timestamp: latest.timestamp.toISOString() },
+      latest: latest && { velocidad: latest.velocidad, timestamp: formatGuatemala(latest.timestamp) },
     },
   };
 }
@@ -155,14 +162,14 @@ export async function recordPings(session: DriverSession, tripId: ObjectId, inpu
 /** Closes the driver's trip; closing an already finished trip returns its original end time. */
 export async function endTrip(session: DriverSession, tripId: ObjectId) {
   const { trips } = await collections();
-  const driverId = new ObjectId(session.driverId);
-  const now = new Date();
+  const filter = { _id: tripId, driverId: new ObjectId(session.driverId) };
+  const now = guatemalaNow();
   const closed = await trips.findOneAndUpdate(
-    { _id: tripId, driverId, estado: 'activo' },
+    { ...filter, estado: 'activo' },
     { $set: { estado: 'finalizado', fin: now, updatedAt: now } },
     { returnDocument: 'after' },
   );
-  const trip = closed ?? await trips.findOne({ _id: tripId, driverId });
+  const trip = closed ?? await trips.findOne(filter);
   if (!trip?.fin) return fail(404, 'Viaje no encontrado.');
-  return { ok: true as const, status: 200, body: { tripId: tripId.toHexString(), estado: trip.estado, fin: trip.fin.toISOString() } };
+  return { ok: true as const, status: 200, body: { tripId: tripId.toHexString(), estado: trip.estado, fin: formatGuatemala(trip.fin) } };
 }

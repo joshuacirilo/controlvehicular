@@ -21,7 +21,8 @@ class _LoginPageState extends State<LoginPage> {
   ApiClient? _api;
   bool _busy = false, _visible = false;
   bool _scanning = false;
-  String? _error, _name;
+  String? _error;
+  AuthSession? _session;
   TripTracker? _tracker;
   @override
   void initState() {
@@ -35,7 +36,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _login() async {
     if (_busy || _api == null || !_form.currentState!.validate()) return;
-    await _authenticate(_username.text, _password.text);
+    await _authenticate(() => _api!.login(_username.text, _password.text));
   }
 
   Future<void> _scanQr() async {
@@ -52,31 +53,33 @@ class _LoginPageState extends State<LoginPage> {
                   builder: (_) => const QrScanPage<QrCredentials>(
                     title: 'Ingresar con QR',
                     instructions:
-                        'Coloca el QR de acceso dentro del recuadro. '
+                        'Coloca tu QR de usuario dentro del recuadro. '
                         'Validaremos tus credenciales con el servidor.',
                     parse: QrCredentials.parse,
                   ),
                 ),
               ));
       if (!mounted || credentials == null) return;
-      await _authenticate(credentials.username, credentials.password);
+      await _authenticate(
+        () => _api!.login(credentials.username, credentials.password),
+      );
     } finally {
       if (mounted) setState(() => _scanning = false);
     }
   }
 
-  Future<void> _authenticate(String username, String password) async {
+  Future<void> _authenticate(Future<AuthSession> Function() login) async {
     if (_busy || _api == null) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final session = await _api!.login(username, password);
+      final session = await login();
       if (!mounted) return;
       _password.clear();
       setState(() {
-        _name = session.name;
+        _session = session;
         _tracker = TripTracker(api: _api!, token: session.token);
       });
     } on LoginException catch (e) {
@@ -103,14 +106,14 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   @override
-  Widget build(BuildContext context) => _name != null && _tracker != null
+  Widget build(BuildContext context) => _session != null && _tracker != null
       ? TripHomePage(
-          name: _name!,
+          name: _session!.name,
           tracker: _tracker!,
           onLogout: () => setState(() {
             _tracker?.dispose();
             _tracker = null;
-            _name = null;
+            _session = null;
             _error = null;
             _visible = false;
             _username.clear();
@@ -150,19 +153,13 @@ class _LoginPageState extends State<LoginPage> {
                               fontSize: 12,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Entorno de prueba',
-                            style: TextStyle(color: Color(0xff4338ca)),
-                          ),
                           const SizedBox(height: 24),
-
                           Text(
                             'Bienvenido',
                             style: Theme.of(context).textTheme.headlineMedium,
                           ),
                           const SizedBox(height: 8),
-                          const Text('Ingresa para probar el acceso a la app.'),
+                          const Text('Ingresa con tu usuario de piloto.'),
                           const SizedBox(height: 24),
                           Form(
                             key: _form,
@@ -258,14 +255,6 @@ class _LoginPageState extends State<LoginPage> {
                                 : _scanQr,
                             icon: const Icon(Icons.qr_code_scanner),
                             label: const Text('Ingresar con QR'),
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'Acceso temporal con usuarios de prueba. No requiere conexión con Atlas.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xff526078),
-                            ),
                           ),
                         ],
                       ),

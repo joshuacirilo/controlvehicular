@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:control_vehicular/core/api_client.dart';
+import 'package:control_vehicular/core/qr_credentials.dart';
 import 'package:control_vehicular/core/trip_tracker.dart';
-import 'package:control_vehicular/core/truck_qr.dart';
 import 'package:control_vehicular/trip_home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,7 +16,7 @@ class _FakeServer {
   final requests = <http.Request>[];
   int failingPings = 0;
   bool sessionExpired = false;
-  String busyQr = 'BUSY';
+  String busyPlate = 'BUSY';
 
   late final api = ApiClient(client: MockClient(_handle));
 
@@ -35,7 +35,7 @@ class _FakeServer {
     final body = jsonDecode(request.body) as Map;
     final path = request.url.path;
     if (path == '/api/trips/start') {
-      if (body['qrCode'] == busyQr) {
+      if (body['placa'] == busyPlate) {
         return http.Response(
           '{"message":"Este camión ya tiene un viaje activo."}',
           409,
@@ -43,7 +43,7 @@ class _FakeServer {
         );
       }
       return http.Response(
-        '{"tripId":"trip-1","truck":{"placa":"DEMO-001","modelo":"Hino 500"}}',
+        '{"tripId":"trip-1","truck":{"placa":"PRUEBA123","modelo":"Hino 500"}}',
         201,
         headers: _json,
       );
@@ -100,9 +100,11 @@ Future<Position> _locate() async {
   );
 }
 
+const _truckQr = TruckCredentials('PRUEBA123', 'camion123!');
+
 Future<(_FakeServer, TripTracker)> _pumpTrip(
   WidgetTester tester, {
-  String qr = 'TRUCK-DEMO-001',
+  TruckCredentials? qr = _truckQr,
   VoidCallback? onLogout,
 }) async {
   tester.view.physicalSize = const Size(800, 1800);
@@ -138,21 +140,15 @@ Future<void> _finish(WidgetTester tester, TripTracker tracker) async {
 const _tick = Duration(seconds: 5);
 
 void main() {
-  test('Truck QR accepts plain codes only', () {
-    expect(parseTruckQr(' TRUCK-DEMO-001 '), 'TRUCK-DEMO-001');
-    for (final invalid in ['', 'https://example.com', 'a b', 'x' * 201]) {
-      expect(() => parseTruckQr(invalid), throwsFormatException);
-    }
-  });
-
   testWidgets('Starts with the truck QR and sends a ping every 5 seconds', (
     tester,
   ) async {
     final (server, tracker) = await _pumpTrip(tester);
     final start = jsonDecode(server.requests.single.body) as Map;
-    expect(start['qrCode'], 'TRUCK-DEMO-001');
+    expect(start['placa'], 'PRUEBA123');
+    expect(start['password'], 'camion123!');
     expect((start['ping'] as Map)['pingId'], hasLength(32));
-    expect(find.text('DEMO-001 · Hino 500'), findsOneWidget);
+    expect(find.text('PRUEBA123 · Hino 500'), findsOneWidget);
     expect(find.text('Viaje en curso'), findsOneWidget);
 
     await tester.pump(_tick);
@@ -236,11 +232,21 @@ void main() {
   testWidgets('Busy truck shows the server message without tracking', (
     tester,
   ) async {
-    final (server, tracker) = await _pumpTrip(tester, qr: 'BUSY');
+    final (server, tracker) = await _pumpTrip(
+      tester,
+      qr: const TruckCredentials('BUSY', 'camion123!'),
+    );
     expect(find.text('Este camión ya tiene un viaje activo.'), findsOneWidget);
     expect(tracker.status, TripStatus.idle);
     await tester.pump(_tick * 2);
     expect(server.pings, isEmpty);
+    await _finish(tester, tracker);
+  });
+
+  testWidgets('No trip starts without scanning the truck QR', (tester) async {
+    final (server, tracker) = await _pumpTrip(tester, qr: null);
+    expect(server.requests, isEmpty);
+    expect(tracker.status, TripStatus.idle);
     await _finish(tester, tracker);
   });
 

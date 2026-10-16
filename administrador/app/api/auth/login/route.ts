@@ -1,31 +1,35 @@
-import { corsHeaders } from '@/server/cors';
-import { verifyTestLogin } from '@/server/auth/test-login';
+import { loginUser } from '@/server/auth/driver-login';
 import { issueDriverToken } from '@/server/auth/session';
+import { verifyTestLogin } from '@/server/auth/test-login';
+import { preflight, readJsonObject, reply } from '@/server/http';
 
 export const runtime = 'nodejs';
+
+// Test credentials must never enable access in a deployed environment.
+const testLoginEnabled = () => process.env.NODE_ENV === 'development' && !process.env.VERCEL;
+
 export async function POST(request: Request) {
-  const headers = corsHeaders(request);
-  // Test credentials must never enable access in a deployed environment.
-  if (process.env.NODE_ENV !== 'development' || process.env.VERCEL) {
-    return Response.json({ message: 'Acceso de prueba deshabilitado.' }, { status: 403, headers });
+  const body = await readJsonObject(request);
+  const username = typeof body?.username === 'string' ? body.username.trim() : '';
+  const password = typeof body?.password === 'string' ? body.password : '';
+  if (!username || !password || username.length > 254 || password.length > 128) {
+    return reply(request, { message: 'Ingresa usuario y contraseña.' }, 400);
   }
-  if (!request.headers.get('content-type')?.includes('application/json')) {
-    return Response.json({ message: 'Se requiere JSON.' }, { status: 415, headers });
+  const testUser = testLoginEnabled() ? verifyTestLogin(username, password) : null;
+  if (testUser) {
+    const { token, expiresAt } = issueDriverToken(testUser);
+    return reply(request, { user: { id: testUser.id, username: testUser.username, name: testUser.name }, token, expiresAt });
   }
-  let body;
-  try { body = await request.json(); } catch {
-    return Response.json({ message: 'Solicitud inválida.' }, { status: 400, headers });
+  try {
+    const result = await loginUser(username, password);
+    return result.ok ? reply(request, result.body) : reply(request, { message: result.message }, result.status);
+  } catch (error) {
+    // Driver errors can embed the connection string; log only their type.
+    console.error('[auth] login failed', (error as Error)?.name, (error as { code?: unknown })?.code);
+    return reply(request, { message: 'El servicio no está disponible. Intenta de nuevo.' }, 503);
   }
-  if (!body || typeof body.username !== 'string' || typeof body.password !== 'string' ||
-      !body.username.trim() || !body.password || body.username.length > 80 || body.password.length > 128) {
-    return Response.json({ message: 'Ingresa usuario y contraseña.' }, { status: 400, headers });
-  }
-  const user = verifyTestLogin(body.username.trim(), body.password);
-  if (!user) return Response.json({ message: 'Usuario o contraseña incorrectos.' }, { status: 401, headers });
-  const { token, expiresAt } = issueDriverToken(user);
-  return Response.json({ mode: 'test', user: { id: user.id, username: user.username, name: user.name }, token, expiresAt },
-    { headers });
 }
+
 export function OPTIONS(request: Request) {
-  return new Response(null, { status: 204, headers: corsHeaders(request) });
+  return preflight(request);
 }

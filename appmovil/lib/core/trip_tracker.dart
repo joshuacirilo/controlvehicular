@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 
 import 'api_client.dart';
 import 'location_service.dart';
+import 'qr_credentials.dart';
 
 enum TripStatus { idle, starting, active, ending }
 
@@ -61,7 +62,7 @@ class TripTracker extends ChangeNotifier {
   int _ticksToWait = 0;
   bool _disposed = false;
 
-  Future<void> start(String qrCode) async {
+  Future<void> start(TruckCredentials truck) async {
     if (status != TripStatus.idle || sessionExpired) return;
     _update(() {
       status = TripStatus.starting;
@@ -70,7 +71,7 @@ class TripTracker extends ChangeNotifier {
     });
     try {
       final position = await _locate();
-      final info = await _api.startTrip(_token, qrCode, _sample(position));
+      final info = await _api.startTrip(_token, truck, _sample(position));
       if (_disposed) return;
       _update(() {
         trip = info;
