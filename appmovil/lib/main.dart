@@ -35,7 +35,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
       _api = widget.api ?? ApiClient();
       _check();
     } on StateError {
-      _message = 'Falta configurar una direccion valida del servidor.';
+      _message = 'Falta configurar una dirección válida del servidor.';
     }
   }
 
@@ -47,7 +47,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     try {
       await _api!.checkConnection();
       if (mounted) {
-        setState(() => _message = 'Conexion con el servidor establecida');
+        setState(() => _message = 'Conexión con el servidor establecida');
       }
     } catch (_) {
       if (mounted) {
@@ -81,7 +81,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             const SizedBox(height: 16),
             FilledButton(
               onPressed: _loading || _api == null ? null : _check,
-              child: const Text('Comprobar conexion'),
+              child: const Text('Comprobar conexión'),
             ),
           ],
         ),

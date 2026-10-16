@@ -32,7 +32,7 @@ void main() {
     await tester.ensureVisible(find.text('Ingresar'));
     await tester.tap(find.text('Ingresar'));
     await tester.pumpAndSettle();
-    expect(find.text('Usuario o contrase?a incorrectos.'), findsOneWidget);
+    expect(find.text('Usuario o contraseña incorrectos.'), findsOneWidget);
     await tester.enterText(find.byType(TextFormField).at(1), '123');
     await tester.ensureVisible(find.text('Ingresar'));
     await tester.tap(find.text('Ingresar'));
@@ -85,8 +85,8 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: ConnectionPage(api: api)));
     await tester.pumpAndSettle();
     expect(find.textContaining('No se pudo conectar'), findsOneWidget);
-    await tester.tap(find.text('Comprobar conexion'));
+    await tester.tap(find.text('Comprobar conexión'));
     await tester.pumpAndSettle();
-    expect(find.text('Conexion con el servidor establecida'), findsOneWidget);
+    expect(find.text('Conexión con el servidor establecida'), findsOneWidget);
   });
 }

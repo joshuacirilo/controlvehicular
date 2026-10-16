@@ -9,7 +9,7 @@ Uri apiBaseUrl({
 }) {
   if (release && value.isEmpty) {
     throw StateError(
-      'Configura API_BASE_URL con la URL HTTPS de produccion en Vercel.',
+      'Configura API_BASE_URL con la URL HTTPS de producción en Vercel.',
     );
   }
   final uri = Uri.tryParse(
@@ -58,7 +58,7 @@ class ApiClient {
         )
         .timeout(const Duration(seconds: 10));
     if (response.statusCode == 401) {
-      throw const LoginException('Usuario o contrase?a incorrectos.');
+      throw const LoginException('Usuario o contraseña incorrectos.');
     }
     if (response.statusCode == 403) {
       throw const LoginException(

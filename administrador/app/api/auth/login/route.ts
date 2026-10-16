@@ -13,14 +13,14 @@ export async function POST(request: Request) {
   }
   let body;
   try { body = await request.json(); } catch {
-    return Response.json({ message: 'Solicitud invalida.' }, { status: 400, headers });
+    return Response.json({ message: 'Solicitud inválida.' }, { status: 400, headers });
   }
   if (!body || typeof body.username !== 'string' || typeof body.password !== 'string' ||
       !body.username.trim() || !body.password || body.username.length > 80 || body.password.length > 128) {
-    return Response.json({ message: 'Ingresa usuario y contrase?a.' }, { status: 400, headers });
+    return Response.json({ message: 'Ingresa usuario y contraseña.' }, { status: 400, headers });
   }
   const user = verifyTestLogin(body.username.trim(), body.password);
-  if (!user) return Response.json({ message: 'Usuario o contrase?a incorrectos.' }, { status: 401, headers });
+  if (!user) return Response.json({ message: 'Usuario o contraseña incorrectos.' }, { status: 401, headers });
   // Connectivity demo only: no session, token, or access to protected resources.
   return Response.json({ mode: 'test', user }, { headers });
 }

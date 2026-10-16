@@ -22,7 +22,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       _api = widget.api ?? ApiClient();
     } catch (_) {
-      _error = 'Falta configurar una direccion valida del servidor.';
+      _error = 'Falta configurar una dirección válida del servidor.';
     }
   }
 
@@ -106,11 +106,11 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'El backend valido tus credenciales correctamente.',
+                        'El backend validó tus credenciales correctamente.',
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'Prueba de conexion completada. No se ha creado una sesion de produccion.',
+                        'Prueba de conexión completada. No se ha creado una sesión de producción.',
                       ),
                       const SizedBox(height: 24),
                       FilledButton(
@@ -157,12 +157,12 @@ class _LoginPageState extends State<LoginPage> {
                                 enabled: !_busy,
                                 obscureText: !_visible,
                                 decoration: InputDecoration(
-                                  labelText: 'Contrase?a',
+                                  labelText: 'Contraseña',
                                   border: const OutlineInputBorder(),
                                   suffixIcon: IconButton(
                                     tooltip: _visible
-                                        ? 'Ocultar contrase?a'
-                                        : 'Mostrar contrase?a',
+                                        ? 'Ocultar contraseña'
+                                        : 'Mostrar contraseña',
                                     onPressed: () =>
                                         setState(() => _visible = !_visible),
                                     icon: Icon(
@@ -178,9 +178,9 @@ class _LoginPageState extends State<LoginPage> {
                                 enableSuggestions: false,
                                 onFieldSubmitted: (_) => _login(),
                                 validator: (v) => v == null || v.isEmpty
-                                    ? 'Ingresa tu contrase?a'
+                                    ? 'Ingresa tu contraseña'
                                     : v.length > 128
-                                    ? 'Contrase?a demasiado larga'
+                                    ? 'Contraseña demasiado larga'
                                     : null,
                               ),
                             ],
@@ -208,7 +208,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 20),
                       const Text(
-                        'Acceso temporal con usuarios de prueba. No requiere conexion con Atlas.',
+                        'Acceso temporal con usuarios de prueba. No requiere conexión con Atlas.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Color(0xff526078),
