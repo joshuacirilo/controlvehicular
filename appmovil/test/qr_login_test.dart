@@ -9,28 +9,39 @@ import 'package:control_vehicular/core/qr_credentials.dart';
 import 'package:control_vehicular/login_page.dart';
 
 void main() {
-  test(
-    'QR requires text credentials and rejects URLs or malformed payloads',
-    () {
-      final valid = QrCredentials.parse(
-        '{"username":" prueba1 ","password":"123"}',
-      );
-      expect(valid.username, 'prueba1');
-      expect(valid.password, '123');
-      for (final invalid in [
-        'https://example.com',
-        '{',
-        '[]',
-        '{}',
-        '{"username":"prueba1","password":123}',
-        '{"username":"","password":"123"}',
-        '{"username":"prueba1","password":""}',
-        'x' * 2049,
-      ]) {
-        expect(() => QrCredentials.parse(invalid), throwsFormatException);
-      }
-    },
-  );
+  test('QR accepts JSON or labeled credentials and rejects URLs or malformed payloads', () {
+    final valid = QrCredentials.parse(
+      '{"username":" prueba1 ","password":"123"}',
+    );
+    expect(valid.username, 'prueba1');
+    expect(valid.password, '123');
+    for (final labeled in [
+      'Usuario: prueba1\nContraseña: 123',
+      'usuario=prueba1\r\ncontrasena=123\n',
+      'Username: prueba1\nPassword: 123',
+    ]) {
+      final parsed = QrCredentials.parse(labeled);
+      expect(parsed.username, 'prueba1');
+      expect(parsed.password, '123');
+    }
+    for (final invalid in [
+      'https://example.com',
+      '{',
+      '[]',
+      '{}',
+      '{"username":"prueba1","password":123}',
+      '{"username":"","password":"123"}',
+      '{"username":"prueba1","password":""}',
+      'Usuario: prueba1',
+      'Usuario: prueba1\nContraseña:',
+      'Usuario: prueba1\nContraseña: 123\nUsuario: otro',
+      'Usuario: prueba1\nContraseña: 123\nUrl: https://example.com',
+      'prueba1 123',
+      'x' * 2049,
+    ]) {
+      expect(() => QrCredentials.parse(invalid), throwsFormatException);
+    }
+  });
   for (final accepted in [true, false]) {
     testWidgets('QR login waits for backend approval: $accepted', (
       tester,
@@ -58,7 +69,7 @@ void main() {
           home: LoginPage(
             api: api,
             scanQr: (_) async =>
-                QrCredentials.parse('{"username":"prueba1","password":"123"}'),
+                QrCredentials.parse('Usuario: prueba1\nContraseña: 123'),
           ),
         ),
       );
