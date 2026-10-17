@@ -8,6 +8,7 @@ import 'api_client.dart';
 import 'location_service.dart';
 import 'ping_store.dart';
 import 'qr_credentials.dart';
+import 'session_store.dart';
 
 enum TripStatus { idle, starting, active, ending }
 
@@ -22,12 +23,17 @@ enum TripStatus { idle, starting, active, ending }
 /// With [watch], samples come from that continuous stream during the trip
 /// (on Android it keeps tracking with the app in the background); otherwise
 /// [locate] is polled every [interval].
+///
+/// With [sessionStore], the active trip is saved on the device so
+/// [resumeActiveTrip] can continue it after the app restarts, and a session
+/// rejected by the server is forgotten.
 class TripTracker extends ChangeNotifier {
   TripTracker({
     required this._api,
     required this._token,
     required this.userId,
     PingStore? store,
+    this._sessionStore,
     Future<Position> Function()? locate,
     this._watch,
     this.interval = const Duration(seconds: 5),
@@ -41,6 +47,7 @@ class TripTracker extends ChangeNotifier {
   final String _token;
   final String userId;
   final PingStore _store;
+  final SessionStore? _sessionStore;
   final Future<Position> Function() _locate;
   final Stream<Position> Function()? _watch;
   final Duration interval;
@@ -112,10 +119,12 @@ class TripTracker extends ChangeNotifier {
       final position = await _locate();
       final info = await _api.startTrip(_token, truck, _sample(position));
       if (_disposed) return;
+      final started = info.startedAt ?? DateTime.now();
+      unawaited(_saveTrip(info.withStart(started)));
       _update(() {
         trip = info;
         status = TripStatus.active;
-        startedAt = DateTime.now();
+        startedAt = started;
         lastPosition = position;
         speedKmh = null;
         sentCount = 1;
@@ -135,14 +144,53 @@ class TripTracker extends ChangeNotifier {
       _update(() {
         status = TripStatus.idle;
         error = e.message;
-        sessionExpired = e.statusCode == 401;
       });
+      if (e.statusCode == 401) _sessionClosed();
     } catch (_) {
       _update(() {
         status = TripStatus.idle;
         error = const LocationException(LocationIssue.unavailable).message;
       });
     }
+  }
+
+  /// Continues the pilot's active trip after the app restarted, without the
+  /// truck QR. The server decides; without connection the trip saved on the
+  /// device is used and later pings reconcile it with the server.
+  Future<void> resumeActiveTrip() async {
+    if (status != TripStatus.idle || sessionExpired) return;
+    TripInfo? info;
+    try {
+      info = await _api.activeTrip(_token);
+      if (info == null) {
+        await _forgetTrip();
+      } else {
+        await _saveTrip(info);
+      }
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        _update(() => error = e.message);
+        _sessionClosed();
+        return;
+      }
+      try {
+        info = await _sessionStore?.readTrip();
+      } catch (_) {
+        info = null;
+      }
+    }
+    if (_disposed || info == null || status != TripStatus.idle) return;
+    final resumed = info;
+    _update(() {
+      trip = resumed;
+      status = TripStatus.active;
+      startedAt = resumed.startedAt ?? DateTime.now();
+      speedKmh = null;
+      error = null;
+      notice = null;
+    });
+    _startTimer();
+    _watchPositions();
   }
 
   /// Delivers every pending sample and then closes the trip. The trip stays
@@ -172,6 +220,7 @@ class TripTracker extends ChangeNotifier {
     try {
       await _api.endTrip(_token, trip!.id);
       if (_disposed) return;
+      unawaited(_forgetTrip());
       _update(() {
         status = TripStatus.idle;
         trip = null;
@@ -181,10 +230,10 @@ class TripTracker extends ChangeNotifier {
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
         _update(() {
-          sessionExpired = true;
           status = TripStatus.active;
           error = e.message;
         });
+        _sessionClosed();
       } else {
         _resume(e.message);
       }
@@ -342,10 +391,8 @@ class TripTracker extends ChangeNotifier {
         return true;
       }
       if (e.statusCode == 401) {
-        _stopTimer();
-        _stopWatching();
-        sessionExpired = true;
         error = e.message;
+        _sessionClosed();
       } else {
         online = false;
         _failures++;
@@ -375,8 +422,33 @@ class TripTracker extends ChangeNotifier {
     return acknowledged.isNotEmpty;
   }
 
+  /// The server rejected the token (logout elsewhere or deactivated pilot):
+  /// stop working and forget the saved session. The trip stays active on the
+  /// server and is resumed after signing in again.
+  void _sessionClosed() {
+    _stopTimer();
+    _stopWatching();
+    sessionExpired = true;
+    unawaited(_guard(() => _sessionStore?.clear()));
+    _notify();
+  }
+
+  Future<void> _saveTrip(TripInfo info) =>
+      _guard(() => _sessionStore?.saveTrip(info));
+
+  Future<void> _forgetTrip() => _guard(() => _sessionStore?.clearTrip());
+
+  /// A failing session store must not break tracking: the trip continues and
+  /// at worst is not restored after a restart.
+  Future<void> _guard(Future<void>? Function() action) async {
+    try {
+      await action();
+    } catch (_) {}
+  }
+
   void _closedRemotely(String message) {
     _stopWatching();
+    unawaited(_forgetTrip());
     status = TripStatus.idle;
     trip = null;
     startedAt = null;

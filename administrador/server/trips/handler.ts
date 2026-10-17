@@ -14,8 +14,8 @@ export async function handleDriverRequest(
   action: (session: DriverSession) => Promise<Result<unknown>>,
 ) {
   try {
-    const session = authenticateDriver(request);
-    if (!session) return reply(request, { message: 'Sesión inválida o vencida. Vuelve a iniciar sesión.' }, 401);
+    const session = await authenticateDriver(request);
+    if (!session) return reply(request, { message: 'Tu sesión fue cerrada. Vuelve a iniciar sesión.' }, 401);
     const result = await action(session);
     return result.ok ? reply(request, result.body, result.status) : reply(request, { message: result.message }, result.status);
   } catch (error) {

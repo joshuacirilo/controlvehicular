@@ -37,8 +37,12 @@ class TripHomePage extends StatelessWidget {
     await tracker.start(truck);
   }
 
-  void _logout(BuildContext context) {
-    if (tracker.status != TripStatus.idle && !tracker.sessionExpired) {
+  bool get _canLogout =>
+      tracker.status == TripStatus.idle || tracker.sessionExpired;
+
+  /// The only way to end the session: it survives closing the app.
+  Future<void> _logout(BuildContext context) async {
+    if (!_canLogout) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
@@ -48,7 +52,30 @@ class TripHomePage extends StatelessWidget {
         );
       return;
     }
-    onLogout();
+    final pending = tracker.pendingCount;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Cerrar sesión?'),
+        content: Text(
+          pending == 0
+              ? 'Tendrás que ingresar de nuevo con tu usuario y contraseña.'
+              : 'Hay $pending ubicaciones sin enviar. Quedarán guardadas en el '
+                    'teléfono y se enviarán cuando vuelvas a iniciar sesión.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Cerrar sesión'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && _canLogout) onLogout();
   }
 
   @override
@@ -167,15 +194,35 @@ class TripHomePage extends StatelessWidget {
                     const SizedBox(height: 24),
                     Text(
                       tracker.tracksInBackground
-                          ? 'Puedes usar otras apps o apagar la pantalla: el viaje se sigue registrando cada 5 segundos. '
-                                'No cierres la app desde la lista de apps recientes.'
-                          : 'Durante el viaje mantén la app abierta: la ubicación se envía cada 5 segundos.',
+                          ? 'Puedes usar otras apps, apagar la pantalla o cerrar la app: el viaje se sigue '
+                                'registrando cada 5 segundos hasta que pulses "Terminar viaje".'
+                          : 'Durante el viaje mantén la app abierta: la ubicación se envía cada 5 segundos. '
+                                'Si la cierras, al volver a abrirla el viaje continúa.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 13,
                         color: BrandColors.muted,
                       ),
                     ),
+                    const SizedBox(height: 24),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _canLogout ? () => _logout(context) : null,
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Cerrar sesión'),
+                    ),
+                    if (!_canLogout) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Termina el viaje para poder cerrar sesión.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: BrandColors.muted,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -363,12 +410,13 @@ class _SessionExpiredCard extends StatelessWidget {
             liveRegion: true,
             child: Text(
               pending == 0
-                  ? 'Tu sesión venció. Vuelve a iniciar sesión con el mismo camión para continuar el viaje.'
+                  ? 'Tu sesión fue cerrada (desde otro dispositivo, o tu usuario fue desactivado). '
+                        'Vuelve a iniciar sesión: si tenías un viaje en curso, continuará solo.'
                   : persistent
-                  ? 'Tu sesión venció. Hay $pending ubicaciones guardadas en el teléfono que se enviarán '
-                        'cuando vuelvas a iniciar sesión. Escanea el QR del mismo camión para continuar el viaje.'
-                  : 'Tu sesión venció. Hay $pending ubicaciones sin enviar que se perderán al salir. '
-                        'Vuelve a iniciar sesión con el mismo camión para continuar el viaje.',
+                  ? 'Tu sesión fue cerrada. Hay $pending ubicaciones guardadas en el teléfono que se enviarán '
+                        'cuando vuelvas a iniciar sesión; si tenías un viaje en curso, continuará solo.'
+                  : 'Tu sesión fue cerrada. Hay $pending ubicaciones sin enviar que se perderán al salir. '
+                        'Vuelve a iniciar sesión: si tenías un viaje en curso, continuará solo.',
               style: const TextStyle(color: Color(0xffb42318)),
             ),
           ),

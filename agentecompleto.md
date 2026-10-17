@@ -1,11 +1,10 @@
 # Traspaso para el siguiente agente: Control Vehicular
 
-Actualizado: 16 de octubre de 2026, 23:40 (hora de Guatemala). Rama: `jc_geolocalizacion`.
-Último commit: `c5aaf6d`. Todo el código está commiteado; solo esta versión de
-`agentecompleto.md` queda pendiente de commit. Los archivos generados están ignorados.
-El usuario hace sus propios commits.
+Actualizado: 17 de octubre de 2026, 01:45 (hora de Guatemala). Rama: `jc_geolocalizacion`.
+Último commit: `a2213ab` (permiso `INTERNET` en Android). Los cambios de la
+conversación 7 (sección 7.4) están **sin commitear**. El usuario hace sus propios commits.
 
-Este documento resume seis conversaciones con el mismo usuario:
+Este documento resume siete conversaciones con el mismo usuario:
 
 1. Backend de viajes + GPS + app Flutter.
 2. Panel administrador (sidebar, vistas, mapa Leaflet).
@@ -19,6 +18,11 @@ Este documento resume seis conversaciones con el mismo usuario:
    nuevos riesgos verificados en el código (sección 12), **vista `/camiones`** con
    capas camión → piloto → rutas paginadas (secciones 6.6 y 8.4) y **mapa ampliado**
    de cada ruta en una ventana modal.
+7. La más reciente: el usuario ya **empaqueta el APK él mismo** apuntando a Vercel
+   (`https://controlvehicular-owwh.vercel.app/api/`). Se creó el piloto real `prueba1`
+   en Atlas y se hizo la **sesión persistente** (token sin vencimiento revocable),
+   la **restauración del viaje** al reabrir la app y el **GPS con la app cerrada
+   desde recientes** (sección 7.4). Se eliminó el login de prueba local.
 
 Léelo completo antes de actuar. El código es la fuente de verdad: verifica antes de
 afirmar.
@@ -243,14 +247,20 @@ Datos (instantánea del 16/10/2026; cambian a menudo, compruébalos antes de afi
   `scrypt$<salt>$<hash>`; hash ficticio para usuarios inexistentes (tiempo constante).
 - `accounts.ts`: `checkCredentials(collection 'users'|'trucks', cuenta, password)`:
   5 fallos bloquean 15 min (`failedLogins`, `lockedUntil`); éxito reinicia contadores.
-- `session.ts`: `issueDriverToken({id, name, driverId})` (12 h, sin renovación) y
-  `authenticateDriver(request)` (Bearer, rol `conductor`, `driverId` ObjectId válido).
+- `session.ts`: `issueDriverToken({id, name, driverId, sessionVersion})` firma un token
+  **sin `exp`** con `ver` (solo el rol conductor puede omitir `exp` en `readToken`).
+  `authenticateDriver(request)` es **async**: comprueba en Atlas que el usuario siga
+  `activo` con `rol:'conductor'`, que `ver == users.sessionVersion` (0 si falta) y que
+  su `drivers` siga activo y vinculado; si no, 401. `revokeDriverSessions` hace
+  `$inc sessionVersion` (logout en todos los dispositivos).
 - `driver-login.ts`: `loginUser(username, password)` (usuario o email con la
   collation, `rol:'conductor'`, `activo:true`; exige un `drivers` activo con
   `userId` = ese usuario, si no 403) y `verifyTruck(placa, password)` (403 QR
   inválido, 429 bloqueado). `normalizePlate` pasa a mayúsculas.
-- `test-login.ts` + `test-users.json` (versionado): usuario de prueba `prueba1` /
-  `123`, vinculado a `bb…01`. Solo con `NODE_ENV=development` y fuera de Vercel.
+- El login de prueba local (`test-login.ts`, `test-users.json`) **se eliminó** en la
+  conversación 7: `prueba1` / `123` ahora es un usuario real en Atlas
+  (`_id 6ad31d6bcf0c25f059997167`, `prueba1@controlvehicular.local`), vinculado a
+  `bb…01` "Conductor Demo Uno". Funciona en local y en Vercel.
 
 ### 6.2 Panel administrador protegido
 
@@ -276,7 +286,10 @@ solo por usuario (el piloto). El QR del camión (placa + contraseña) se exige *
 iniciar cada viaje**.
 
 - `POST /api/auth/login` `{username, password}` → `{user:{id, username, name}, token,
-  expiresAt}`. Primero prueba `prueba1` (solo dev), luego `loginUser`. 503 si falla BD.
+  expiresAt:null}` vía `loginUser`. 503 si falla BD.
+- `POST /api/auth/logout` (Bearer) → `{loggedOut:true}`; revoca todos los tokens del piloto.
+- `GET /api/trips/active` (Bearer) → `{trip:{tripId, inicio, truck:{placa, modelo}} | null}`;
+  la app lo usa para reanudar el viaje sin el QR.
 - `POST /api/trips/start` `{placa, password, ping?}` (Bearer). Sin QR → 400; conductor
   inactivo → 403; QR inválido → 403; camión bloqueado → 429; camión ocupado o piloto
   con viaje activo en otro camión → 409; mismo camión con viaje activo → 200
@@ -507,12 +520,51 @@ funcionando en segundo plano en Android.
   manual del usuario: `flutter run` en un teléfono con
   `--dart-define=API_BASE_URL=http://<IP-de-la-PC>:3000/api/`, iniciar viaje, salir a
   otra app o apagar la pantalla y ver en `/mapa` que el camión sigue moviéndose.
-- Límites conocidos: si el piloto cierra la app desde recientes, Android destruye el
-  proceso y el seguimiento se detiene (haría falta un servicio con su propio motor de
-  Flutter). En Android 13+ sin permiso de notificaciones el servicio funciona pero la
+- Límites conocidos: cerrar la app desde recientes ya no detiene el seguimiento
+  (sección 7.4), salvo que el fabricante mate el proceso. En Android 13+ sin permiso de notificaciones el servicio funciona pero la
   notificación no se ve (pedirlo requiere p. ej. `permission_handler`; se ofreció y
   el usuario no respondió). Fabricantes con ahorro agresivo (Xiaomi, Huawei,
   Samsung): configurar Batería → "Sin restricciones". En web no hay segundo plano.
+
+### 7.4 Sesión persistente y viaje que sobrevive al cierre (conversación 7)
+
+Pedido del usuario: al cerrar la app desde recientes el viaje quedaba huérfano; "que la
+sesión no se cierre bajo ninguna circunstancia a menos que el piloto la cierre" y un
+botón de cerrar sesión. Decisiones con `AskQuestion`: token **sin vencimiento,
+revocable**; restaurar al reabrir **y además** intentar seguir con el GPS con la app
+cerrada.
+
+- `lib/core/session_store.dart`: `SessionStore` (`read/save` de `AuthSession`,
+  `readTrip/saveTrip/clearTrip` de `TripInfo`, `clear`). `SecureSessionStore` usa
+  `flutter_secure_storage` 11.2.0 (Keystore; minSdk 24 = el de Flutter; si no puede
+  leer devuelve null) y `MemorySessionStore` para pruebas.
+- `TripInfo` tiene `startedAt` (parsea `inicio` del servidor). `ApiClient` añade
+  `activeTrip(token)` (GET) y `logout(token)`; `_post` pasó a `_send(method, ...)`.
+- `TripTracker(sessionStore:)`: guarda el viaje al iniciar y lo borra al terminar o si
+  el servidor lo cierra. `resumeActiveTrip()` pregunta al servidor; sin red usa el viaje
+  guardado (los pings luego lo reconcilian: 404 o `estado != activo` lo cierran). Un 401
+  llama a `_sessionClosed()`: detiene todo y **borra la sesión guardada**.
+- `LoginPage(sessionStore?, locate?, watch?)`: al abrir lee la sesión (indicador de
+  carga mientras tanto) y, si existe, entra directo y llama a `resumeActiveTrip()`.
+  Al cerrar sesión: borra el almacén y llama a `api.logout` sin esperar.
+  `locate`/`watch` existen para inyectar GPS falso en pruebas (en pruebas
+  `backgroundTrackingSupported` es true y usaría el plugin real).
+- `TripHomePage`: botón visible "Cerrar sesión" al final, con diálogo de confirmación
+  (avisa de las pendientes); deshabilitado durante el viaje. El ícono de la barra sigue.
+- **Android** `MainActivity.kt`: `provideFlutterEngine` reutiliza un motor en
+  `FlutterEngineCache` y `shouldDestroyEngineWithHost() = false`. Al cerrar la tarea
+  solo muere la actividad; Dart, el temporizador y el servicio en primer plano de
+  geolocator (ligado al motor, no a la actividad) siguen. `android:allowBackup="false"`
+  (el respaldo rompe las claves del Keystore).
+- **No probado en dispositivo.** Prueba del usuario: iniciar viaje, cerrar desde
+  recientes, ver en `/mapa` que sigue; reabrir; "Forzar detención" y reabrir: debe
+  restaurar el viaje sin QR. Si el fabricante mata el proceso, el GPS se detiene hasta
+  reabrir (entonces entra la restauración).
+- El backend nuevo debe **desplegarse en Vercel antes** de usar un APK con estos
+  cambios (las rutas `logout` y `trips/active` no existen en la versión desplegada).
+- Pruebas: **30**, todas pasan (nuevas: viaje guardado/borrado, sesión y viaje
+  restaurados al reabrir, restauración sin red, viaje cerrado no se reanuda, logout con
+  confirmación, sesión cerrada se olvida).
 
 ### 7.3 Lecciones de pruebas Flutter (útiles al tocar el tracker)
 
@@ -643,6 +695,11 @@ viajes dicen "Sin viajes"), **10 por página**.
     todos los camiones paginados de 10 en 10 y rutas de 5 en 5 (sección 8.4).
 15. Cada mini mapa se puede ampliar en una ventana modal y cerrar (X, Escape o clic
     fuera).
+16. La sesión del piloto **no vence**: solo termina con "Cerrar sesión" o si el admin
+    desactiva al piloto (revocación por `users.sessionVersion`). Sustituye la decisión
+    12: el viaje se **reanuda solo** al reabrir la app, sin escanear el QR.
+17. Con la app cerrada desde recientes el GPS sigue (motor de Flutter retenido).
+18. El usuario empaqueta el APK por su cuenta; el agente sigue sin generar APK/AAB.
 
 ## 10. Estado de Git
 
@@ -688,9 +745,8 @@ Restos locales fuera de Git: la carpeta vacía `administrador/app/api/auth/truck
    wasm 3.6.0 / Dart `sqlite3` 3.5.2), segundo plano en un Android real (lo prueba el
    usuario con `flutter run`; el agente no lanza Android) y el **mapa ampliado** de
    `/camiones` (no se vio en navegador ni pasó por build).
-9. Cola persistente: **hecha** (sección 7.1). Falta, si el usuario lo pide, restaurar
-   el viaje al reabrir la app (persistir viaje y token de forma segura) en vez de
-   volver a escanear el QR.
+9. Cola persistente: **hecha** (sección 7.1). Restaurar el viaje al reabrir: **hecho**
+   (sección 7.4).
 10. Tiempo real con menos latencia (SSE/WebSocket) si se exige RNF01 de 3-5 s.
 11. Cierre por QR (RF07) si el usuario lo confirma.
 12. Historial: **vista por camión/piloto hecha** (sección 8.4). Falta, si se pide:
@@ -705,7 +761,11 @@ Restos locales fuera de Git: la carpeta vacía `administrador/app/api/auth/truck
     inyecta como reglas y describen un proyecto que ya no existe).
 15. Limpieza menor: borrar la carpeta vacía `truck-login/` y los SVG de plantilla de
     `public/` (pedir confirmación).
-16. Eliminar el login de prueba antes de producción.
+16. ~~Eliminar el login de prueba~~: hecho (conversación 7). Queda el piloto real
+    `prueba1` / `123` en Atlas: cambiar su contraseña o desactivarlo antes de producción.
+17b. **Desplegar en Vercel** los cambios de la conversación 7 y que el usuario pruebe en
+    el teléfono la sección 7.4. Un script `user:create` para pilotos sigue pendiente
+    (punto 4).
 17. Este documento creció a ~800 líneas. Recomendado (con permiso): mover lo estable
     (contrato, esquema, trucos del entorno) a `server/README.md` y los `AGENTS.md` de
     módulo, y dejar aquí solo estado, decisiones, pendientes y riesgos.
@@ -745,8 +805,10 @@ Hallazgos anteriores:
 - **Dos viajes activos por piloto** (`startTrip` en `server/trips/service.ts`): busca
   y luego inserta sin atomicidad; el índice único es por camión. Arreglo: índice único
   parcial `{driverId}` con `estado:'activo'` (infraestructura: pedir permiso).
-- **Token del piloto irrevocable 12 h**: `recordPings` y `endTrip` no comprueban que
-  el conductor siga activo (solo `startTrip`). `getAdmin()` sí revisa la BD.
+- ~~Token del piloto irrevocable 12 h~~: **resuelto** en la conversación 7; cada
+  petición del piloto comprueba usuario, conductor y `sessionVersion` en Atlas (dos
+  `findOne` por petición, también en cada lote de pings). Si un token se filtra, vale
+  hasta que se revoque: no hay vencimiento.
 - **`storePings` hace N+1 consultas** (un `findOne` y un `insertOne` por ping): un lote
   de 50 son ~100 viajes a Atlas. Mejor: leer el ping previo una vez, calcular en
   memoria e `insertMany({ordered:false})`.
@@ -787,7 +849,7 @@ npm.cmd run dev        # http://localhost:3000 (panel: admin1; app: prueba1 / 12
 cd ..\appmovil
 dart format lib test
 flutter analyze
-flutter test           # 26 pruebas
+flutter test           # 30 pruebas
 flutter build web --dart-define=API_BASE_URL=http://localhost:3000/api/   # permitido; APK no
 # Solo si se actualiza sqlite3/sqflite_common_ffi_web:
 # dart run sqflite_common_ffi_web:setup --force

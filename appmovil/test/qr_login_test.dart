@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:control_vehicular/core/api_client.dart';
 import 'package:control_vehicular/core/ping_store.dart';
 import 'package:control_vehicular/core/qr_credentials.dart';
+import 'package:control_vehicular/core/session_store.dart';
 import 'package:control_vehicular/login_page.dart';
 
 void main() {
@@ -94,10 +95,12 @@ void main() {
         home: LoginPage(
           api: api,
           store: MemoryPingStore(),
+          sessionStore: MemorySessionStore(),
           scanQr: (_) async => const QrCredentials('piloto1', 'clave-123'),
         ),
       ),
     );
+    await tester.pump();
     await tester.ensureVisible(find.text('Ingresar con QR'));
     await tester.tap(find.text('Ingresar con QR'));
     await tester.pumpAndSettle();
@@ -113,6 +116,9 @@ void main() {
       var requests = 0;
       final api = ApiClient(
         client: MockClient((request) async {
+          if (request.url.path == '/api/trips/active') {
+            return http.Response('{"trip":null}', 200);
+          }
           requests++;
           expect(request.url.path, '/api/auth/login');
           expect(jsonDecode(request.body), {
@@ -133,11 +139,13 @@ void main() {
           home: LoginPage(
             api: api,
             store: MemoryPingStore(),
+            sessionStore: MemorySessionStore(),
             scanQr: (_) async =>
                 QrCredentials.parse('Usuario: prueba1\nContraseña: 123'),
           ),
         ),
       );
+      await tester.pump();
       await tester.ensureVisible(find.text('Ingresar con QR'));
       await tester.tap(find.text('Ingresar con QR'));
       await tester.pumpAndSettle();
@@ -163,10 +171,12 @@ void main() {
         home: LoginPage(
           api: api,
           store: MemoryPingStore(),
+          sessionStore: MemorySessionStore(),
           scanQr: (_) async => null,
         ),
       ),
     );
+    await tester.pump();
     await tester.ensureVisible(find.text('Ingresar con QR'));
     await tester.tap(find.text('Ingresar con QR'));
     await tester.pumpAndSettle();

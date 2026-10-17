@@ -60,14 +60,24 @@ insertar. Pedir al DBA un indice unico si se crean cuentas desde la API.
 El login es obligatorio y solo por usuario: ese usuario es el piloto del viaje.
 POST /api/auth/login `{username, password}` (usuario o email) valida contra `users`
 con `rol: 'conductor'` y el conductor activo cuyo `drivers.userId` apunta a ese
-usuario (403 si no hay). Devuelve `{user:{name}, token, expiresAt}` con un token
-HMAC-SHA256 firmado con `AUTH_SECRET` (minimo 32 caracteres, solo en .env.local)
-que dura 12 horas, sin renovacion. 5 intentos fallidos bloquean la cuenta 15
-minutos: 429. La app permite escribir las credenciales o leerlas de un QR con
-`Usuario:` y `Contraseña:`.
+usuario (403 si no hay). Devuelve `{user:{id, username, name}, token, expiresAt:null}`
+con un token HMAC-SHA256 firmado con `AUTH_SECRET` (minimo 32 caracteres, solo en
+.env.local). 5 intentos fallidos bloquean la cuenta 15 minutos: 429. La app permite
+escribir las credenciales o leerlas de un QR con `Usuario:` y `Contraseña:`.
 
-En desarrollo local (no Vercel) tambien acepta el usuario de prueba `prueba1` /
-`123` de server/auth/test-users.json, vinculado a "Conductor Demo Uno".
+**La sesion del piloto no vence**: la app guarda el token en el almacenamiento seguro
+del telefono y solo lo borra cuando el piloto pulsa "Cerrar sesion". El token lleva
+`ver`, que debe coincidir con `users.sessionVersion` (0 si falta). En cada peticion
+el servidor comprueba en Atlas que el usuario siga `activo` con `rol:'conductor'`,
+que `ver` coincida y que su `drivers` siga activo y vinculado; si no, 401. Para cerrar
+la sesion de un piloto en todos sus dispositivos: desactivarlo o incrementar
+`sessionVersion`.
+
+POST /api/auth/logout (Bearer) incrementa `sessionVersion`: el token deja de servir.
+Responde `{loggedOut:true}`.
+
+El piloto de prueba `prueba1` / `123` existe en Atlas (vinculado a "Conductor Demo
+Uno"); ya no hay usuarios de prueba fuera de la base.
 
 No hay sesion de camion. El QR de cada camion contiene dos lineas: `Placa: <placa>`
 y `Contraseña: <clave>` (tambien JSON `{"placa", "password"}`) y es **obligatorio
@@ -98,6 +108,7 @@ estos campos directamente debe tratarlos como hora de Guatemala, no como UTC.
 | POST /api/trips/start | `{placa, password, ping?}` del QR del camion (obligatorio) | 201 viaje nuevo o 200 si ya estaba activo con ese camión: `{tripId, inicio, resumed, truck:{placa, modelo}}` |
 | POST /api/trips/:id/ping | `{pings:[...]}` (1 a 100) | `{estado, accepted:[pingId], rejected:[{pingId, reason}], latest:{velocidad, timestamp}}` |
 | POST /api/trips/:id/end | — | `{tripId, estado:'finalizado', fin}`; repetirlo devuelve el mismo `fin` |
+| GET /api/trips/active | — | `{trip:{tripId, inicio, truck:{placa, modelo}} \| null}`: viaje activo del conductor, para reanudarlo al reabrir la app sin el QR |
 
 Cada ping es `{pingId, latitude, longitude, accuracy, timestamp}`. `pingId` (8 a 100
 caracteres `[A-Za-z0-9_-]`) debe conservarse al reintentar: el indice unico
@@ -113,7 +124,8 @@ caracteres `[A-Za-z0-9_-]`) debe conservarse al reintentar: el indice unico
   en `rejected` con `trip_closed`.
 - Un conductor solo puede enviar pings y cerrar sus propios viajes.
 - Codigos: 400 datos invalidos o falta el QR del camion (no reintentar), 401 token
-  ausente/vencido, 403 QR del camion invalido o conductor inactivo,
+  ausente o sesion cerrada (logout, usuario o conductor desactivado), 403 QR del
+  camion invalido,
   404 viaje inexistente, 409 conflicto, 429 camion bloqueado por intentos fallidos,
   503 base de datos no disponible.
 

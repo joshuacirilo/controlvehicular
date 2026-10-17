@@ -61,7 +61,9 @@ export async function loginUser(username: string, password: string) {
   if (!driver) return { ok: false as const, status: 403, message: 'Tu usuario no está vinculado a un conductor activo.' };
   const account = check.account;
   const name = account.nombre ?? driver.nombre;
-  const { token, expiresAt } = issueDriverToken({ id: account._id.toHexString(), name, driverId: driver._id.toHexString() });
+  const { token, expiresAt } = issueDriverToken({
+    id: account._id.toHexString(), name, driverId: driver._id.toHexString(), sessionVersion: account.sessionVersion ?? 0,
+  });
   return {
     ok: true as const, status: 200,
     body: { user: { id: account._id.toHexString(), username: account.username ?? account.email, name }, token, expiresAt },

@@ -7,31 +7,48 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:control_vehicular/core/api_client.dart';
 import 'package:control_vehicular/core/ping_store.dart';
+import 'package:control_vehicular/core/session_store.dart';
 import 'package:control_vehicular/main.dart';
 
 void main() {
-  testWidgets('Login rejects invalid credentials then succeeds and resets', (
+  testWidgets('Login is saved and only a confirmed logout clears it', (
     tester,
   ) async {
+    var loggedOut = 0;
     final api = ApiClient(
       client: MockClient((request) async {
+        if (request.url.path == '/api/trips/active') {
+          expect(request.headers['Authorization'], 'Bearer token-1');
+          return http.Response('{"trip":null}', 200);
+        }
+        if (request.url.path == '/api/auth/logout') {
+          expect(request.headers['Authorization'], 'Bearer token-1');
+          loggedOut++;
+          return http.Response('{"loggedOut":true}', 200);
+        }
         expect(request.method, 'POST');
         expect(request.url.path, '/api/auth/login');
         final body = jsonDecode(request.body);
         if (body['password'] != '123') return http.Response('{}', 401);
         expect(body['username'], 'prueba1');
         return http.Response(
-          '{"mode":"usuario","user":{"id":"u1","name":"Usuario de prueba"},"token":"t"}',
+          '{"user":{"id":"u1","name":"Usuario de prueba"},"token":"token-1"}',
           200,
         );
       }),
     );
     addTearDown(api.close);
+    final sessions = MemorySessionStore();
     await tester.pumpWidget(
       MaterialApp(
-        home: LoginPage(api: api, store: MemoryPingStore()),
+        home: LoginPage(
+          api: api,
+          store: MemoryPingStore(),
+          sessionStore: sessions,
+        ),
       ),
     );
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).at(0), 'prueba1');
     await tester.enterText(find.byType(TextFormField).at(1), 'incorrecta');
     await tester.ensureVisible(find.text('Ingresar'));
@@ -43,9 +60,22 @@ void main() {
     await tester.tap(find.text('Ingresar'));
     await tester.pumpAndSettle();
     expect(find.text('Hola, Usuario de prueba'), findsOneWidget);
+    expect(sessions.session?.token, 'token-1');
+
     await tester.tap(find.byTooltip('Cerrar sesión'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancelar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Hola, Usuario de prueba'), findsOneWidget);
+    expect(sessions.session, isNotNull);
+
+    await tester.tap(find.byTooltip('Cerrar sesión'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Cerrar sesión'));
+    await tester.pumpAndSettle();
     expect(find.text('Ingresar'), findsOneWidget);
+    expect(sessions.session, isNull);
+    expect(loggedOut, 1);
   });
   test('Release requires HTTPS production configuration', () {
     for (final url in [
