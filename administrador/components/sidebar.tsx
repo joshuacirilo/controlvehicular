@@ -3,11 +3,12 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { AccountsIcon, DashboardIcon, LogoutIcon, MapIcon } from '@/components/icons';
+import { AccountsIcon, DashboardIcon, LogoutIcon, MapIcon, TruckIcon } from '@/components/icons';
 
 const links = [
   { href: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
   { href: '/mapa', label: 'Mapa', icon: MapIcon },
+  { href: '/camiones', label: 'Camiones', icon: TruckIcon },
   { href: '/cuentas', label: 'Control de cuentas', icon: AccountsIcon },
 ] as const;
 

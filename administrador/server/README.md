@@ -130,3 +130,25 @@ viajes activos con su ultima posicion:
 `ubicacion` es `null` hasta que llega el primer ping. Las fechas llevan `-06:00`.
 La vista `/mapa` consulta esta ruta cada 5 s mientras la pestaña esta visible y
 muestra en gris los camiones cuyo ultimo ping tiene mas de 60 s.
+
+## Historial por camion y piloto (panel)
+
+La vista `/camiones?pagina=N` (Server Component) lista todos los camiones por placa,
+10 por pagina, y dentro de cada uno los pilotos con viajes en el (`truckHistoryPage`
+en `server/trucks/history.ts`). Al desplegar un piloto se piden sus rutas:
+
+GET /api/trucks/:truckId/drivers/:driverId/trips?page=N (cookie `cv_admin`,
+`Cache-Control: no-store`), 5 viajes por pagina, del mas reciente al mas antiguo:
+
+```text
+{"page","totalPages","total","trips":[{"tripId","estado","inicio","fin" | null,
+  "puntos","distanciaKm","ruta":[[lat, lng], ...]}]}
+```
+
+- 401 sin sesion de administrador, 404 si algun id no es un ObjectId, 400 si `page`
+  no es un entero >= 1. Una pagina mayor que `totalPages` devuelve la ultima.
+- `ruta` se reduce a unas 200 coordenadas para los mini mapas; `puntos` es el total.
+- `distanciaKm` suma solo desplazamientos mayores que la precision del GPS (misma
+  regla que la velocidad), asi un telefono quieto con mala precision marca 0 km.
+- Lee todos los pings de cada viaje: en viajes de varios dias convendria guardar un
+  resumen al cerrar el viaje.

@@ -31,7 +31,7 @@ export function parsePing(value: unknown, now = new Date()): PingInput | null {
 
 export type StoredPoint = { coordinates: [number, number]; timestamp: Date; accuracy: number | null };
 
-function distanceMeters([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) {
+export function distanceMeters([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) {
   const rad = Math.PI / 180;
   const a = Math.sin(((lat2 - lat1) * rad) / 2) ** 2 +
     Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lng2 - lng1) * rad) / 2) ** 2;
