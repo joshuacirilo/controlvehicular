@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:control_vehicular/core/api_client.dart';
+import 'package:control_vehicular/core/ping_store.dart';
 import 'package:control_vehicular/core/qr_credentials.dart';
 import 'package:control_vehicular/login_page.dart';
 
@@ -20,6 +21,11 @@ void main() {
       'usuario=prueba1\r\ncontrasena=123\n',
       'Username: prueba1\nPassword: 123',
     ]) {
+      expect(
+        () => TruckCredentials.parse(labeled),
+        throwsFormatException,
+        reason: 'login QR must not start a trip',
+      );
       final parsed = QrCredentials.parse(labeled);
       expect(parsed.username, 'prueba1');
       expect(parsed.password, '123');
@@ -42,6 +48,64 @@ void main() {
       expect(() => QrCredentials.parse(invalid), throwsFormatException);
     }
   });
+  test('Truck QR needs plate and password and rejects login QRs', () {
+    for (final raw in [
+      'Placa: prueba123\nContraseña: camion123!',
+      'placa:prueba123 contraseña: camion123!',
+      'CONTRASEÑA=camion123! PLACA: prueba123',
+      '{"placa":" PRUEBA123 ","password":"camion123!"}',
+    ]) {
+      final truck = TruckCredentials.parse(raw);
+      expect(truck.plate, 'PRUEBA123');
+      expect(truck.password, 'camion123!');
+      expect(() => QrCredentials.parse(raw), throwsFormatException);
+    }
+    for (final invalid in [
+      'PRUEBA123',
+      'TRUCK-DEMO-001',
+      'Placa: PRUEBA123',
+      'Placa: PRUEBA 123\nContraseña: x',
+      'Placa: ${'A' * 21}\nContraseña: x',
+      'Placa: PRUEBA123\nContraseña:',
+      'Placa: PRUEBA123 Contraseña:',
+      'Usuario: piloto1 Contraseña: x',
+      'Hola Placa: PRUEBA123 Contraseña: x',
+      '{"placa":"PRUEBA123"}',
+      'https://example.com',
+    ]) {
+      expect(() => TruckCredentials.parse(invalid), throwsFormatException);
+    }
+  });
+  testWidgets('Login shows the server reason when it is refused', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      client: MockClient(
+        (_) async => http.Response(
+          '{"message":"Tu usuario no está vinculado a un conductor activo."}',
+          403,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          api: api,
+          store: MemoryPingStore(),
+          scanQr: (_) async => const QrCredentials('piloto1', 'clave-123'),
+        ),
+      ),
+    );
+    await tester.ensureVisible(find.text('Ingresar con QR'));
+    await tester.tap(find.text('Ingresar con QR'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Tu usuario no está vinculado a un conductor activo.'),
+      findsOneWidget,
+    );
+  });
   for (final accepted in [true, false]) {
     testWidgets('QR login waits for backend approval: $accepted', (
       tester,
@@ -57,7 +121,7 @@ void main() {
           });
           return accepted
               ? http.Response(
-                  '{"mode":"test","user":{"name":"Usuario de prueba"}}',
+                  '{"mode":"usuario","user":{"id":"u1","name":"Usuario de prueba"},"token":"t"}',
                   200,
                 )
               : http.Response('{}', 401);
@@ -68,6 +132,7 @@ void main() {
         MaterialApp(
           home: LoginPage(
             api: api,
+            store: MemoryPingStore(),
             scanQr: (_) async =>
                 QrCredentials.parse('Usuario: prueba1\nContraseña: 123'),
           ),
@@ -95,7 +160,11 @@ void main() {
     addTearDown(api.close);
     await tester.pumpWidget(
       MaterialApp(
-        home: LoginPage(api: api, scanQr: (_) async => null),
+        home: LoginPage(
+          api: api,
+          store: MemoryPingStore(),
+          scanQr: (_) async => null,
+        ),
       ),
     );
     await tester.ensureVisible(find.text('Ingresar con QR'));

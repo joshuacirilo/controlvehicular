@@ -3,6 +3,7 @@
     "id": "demo-1",
     "username": "prueba1",
     "name": "Usuario de prueba",
+    "driverId": "bb0000000000000000000001",
     "salt": "control-vehicular-local-demo",
     "passwordHash": "2b4f9bb3467478f2a50886c28b2aa352d411534dda4ec59523c2dc6e0c67a7f8be5ca9d81a7337e4c69dfe600d2589adf98e4b7db050d315812a976a22ecf18e"
   }

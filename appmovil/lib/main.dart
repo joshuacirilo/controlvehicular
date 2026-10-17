@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
+import 'core/brand.dart';
 import 'login_page.dart';
 
 void main() => runApp(const MyApp());
@@ -10,9 +11,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Control vehicular',
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-    ),
+    theme: buildBrandTheme(),
     home: const LoginPage(),
   );
 }

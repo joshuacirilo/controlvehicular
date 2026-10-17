@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
+import 'core/brand.dart';
+import 'core/location_service.dart';
+import 'core/ping_store.dart';
 import 'core/qr_credentials.dart';
-import 'qr_login_page.dart';
+import 'core/trip_tracker.dart';
+import 'qr_scan_page.dart';
 import 'trip_home_page.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, this.api, this.scanQr});
+  const LoginPage({super.key, this.api, this.scanQr, this.store});
   final Future<QrCredentials?> Function(BuildContext)? scanQr;
   final ApiClient? api;
+
+  /// Queue for location samples; the device database when null.
+  final PingStore? store;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -20,10 +27,16 @@ class _LoginPageState extends State<LoginPage> {
   ApiClient? _api;
   bool _busy = false, _visible = false;
   bool _scanning = false;
-  String? _error, _name;
+  String? _error;
+  AuthSession? _session;
+  TripTracker? _tracker;
+  late final Future<PingStore> _store;
   @override
   void initState() {
     super.initState();
+    _store = widget.store != null
+        ? Future.value(widget.store!)
+        : openPingStore();
     try {
       _api = widget.api ?? ApiClient();
     } catch (_) {
@@ -33,7 +46,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _login() async {
     if (_busy || _api == null || !_form.currentState!.validate()) return;
-    await _authenticate(_username.text, _password.text);
+    await _authenticate(() => _api!.login(_username.text, _password.text));
   }
 
   Future<void> _scanQr() async {
@@ -46,26 +59,46 @@ class _LoginPageState extends State<LoginPage> {
       final credentials =
           await (widget.scanQr?.call(context) ??
               Navigator.of(context).push<QrCredentials>(
-                MaterialPageRoute(builder: (_) => const QrLoginPage()),
+                MaterialPageRoute(
+                  builder: (_) => const QrScanPage<QrCredentials>(
+                    title: 'Ingresar con QR',
+                    instructions:
+                        'Coloca tu QR de usuario dentro del recuadro. '
+                        'Validaremos tus credenciales con el servidor.',
+                    parse: QrCredentials.parse,
+                  ),
+                ),
               ));
       if (!mounted || credentials == null) return;
-      await _authenticate(credentials.username, credentials.password);
+      await _authenticate(
+        () => _api!.login(credentials.username, credentials.password),
+      );
     } finally {
       if (mounted) setState(() => _scanning = false);
     }
   }
 
-  Future<void> _authenticate(String username, String password) async {
+  Future<void> _authenticate(Future<AuthSession> Function() login) async {
     if (_busy || _api == null) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final name = await _api!.login(username, password);
+      final session = await login();
+      final store = await _store;
       if (!mounted) return;
       _password.clear();
-      if (mounted) setState(() => _name = name);
+      setState(() {
+        _session = session;
+        _tracker = TripTracker(
+          api: _api!,
+          token: session.token,
+          userId: session.userId,
+          store: store,
+          watch: backgroundTrackingSupported ? backgroundLocationUpdates : null,
+        );
+      });
     } on LoginException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -82,18 +115,23 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _tracker?.dispose();
     _username.dispose();
     _password.dispose();
     if (widget.api == null) _api?.close();
+    if (widget.store == null) _store.then((store) => store.close());
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => _name != null
+  Widget build(BuildContext context) => _session != null && _tracker != null
       ? TripHomePage(
-          name: _name!,
+          name: _session!.name,
+          tracker: _tracker!,
           onLogout: () => setState(() {
-            _name = null;
+            _tracker?.dispose();
+            _tracker = null;
+            _session = null;
             _error = null;
             _visible = false;
             _username.clear();
@@ -101,156 +139,155 @@ class _LoginPageState extends State<LoginPage> {
           }),
         )
       : Scaffold(
-          backgroundColor: const Color(0xfff1f5f9),
-          body: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  child: Card(
-                    elevation: 0,
-                    color: Colors.white,
-                    child: Padding(
-                      padding: const EdgeInsets.all(28),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Align(
-                            alignment: Alignment.centerLeft,
-                            child: CircleAvatar(
-                              backgroundColor: Color(0xff4338ca),
-                              foregroundColor: Colors.white,
-                              child: Icon(Icons.local_shipping_outlined),
+          backgroundColor: BrandColors.navy,
+          body: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment.topCenter,
+                radius: 1.4,
+                colors: [
+                  Color(0xff0b5fd6),
+                  BrandColors.navyLight,
+                  BrandColors.navy,
+                ],
+                stops: [0, 0.45, 1],
+              ),
+            ),
+            child: SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Card(
+                      elevation: 0,
+                      color: Colors.white,
+                      child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: BrandMark(),
                             ),
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'CONTROL VEHICULAR',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.5,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Entorno de prueba',
-                            style: TextStyle(color: Color(0xff4338ca)),
-                          ),
-                          const SizedBox(height: 24),
-
-                          Text(
-                            'Bienvenido',
-                            style: Theme.of(context).textTheme.headlineMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text('Ingresa para probar el acceso a la app.'),
-                          const SizedBox(height: 24),
-                          Form(
-                            key: _form,
-                            child: AutofillGroup(
-                              child: Column(
-                                children: [
-                                  TextFormField(
-                                    controller: _username,
-                                    enabled: !_busy,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Usuario',
-                                      border: OutlineInputBorder(),
-                                      prefixIcon: Icon(Icons.person_outline),
-                                    ),
-                                    autofillHints: const [
-                                      AutofillHints.username,
-                                    ],
-                                    textInputAction: TextInputAction.next,
-                                    autocorrect: false,
-                                    validator: (v) =>
-                                        v == null || v.trim().isEmpty
-                                        ? 'Ingresa tu usuario'
-                                        : v.length > 80
-                                        ? 'Usuario demasiado largo'
-                                        : null,
-                                  ),
-                                  const SizedBox(height: 18),
-                                  TextFormField(
-                                    controller: _password,
-                                    enabled: !_busy,
-                                    obscureText: !_visible,
-                                    decoration: InputDecoration(
-                                      labelText: 'Contraseña',
-                                      border: const OutlineInputBorder(),
-                                      suffixIcon: IconButton(
-                                        tooltip: _visible
-                                            ? 'Ocultar contraseña'
-                                            : 'Mostrar contraseña',
-                                        onPressed: () => setState(
-                                          () => _visible = !_visible,
-                                        ),
-                                        icon: Icon(
-                                          _visible
-                                              ? Icons.visibility_off_outlined
-                                              : Icons.visibility_outlined,
-                                        ),
-                                      ),
-                                    ),
-                                    autofillHints: const [
-                                      AutofillHints.password,
-                                    ],
-                                    textInputAction: TextInputAction.done,
-                                    autocorrect: false,
-                                    enableSuggestions: false,
-                                    onFieldSubmitted: (_) => _login(),
-                                    validator: (v) => v == null || v.isEmpty
-                                        ? 'Ingresa tu contraseña'
-                                        : v.length > 128
-                                        ? 'Contraseña demasiado larga'
-                                        : null,
-                                  ),
-                                ],
+                            const SizedBox(height: 20),
+                            const Text(
+                              'CONTROL VEHICULAR',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.5,
+                                fontSize: 12,
+                                color: BrandColors.blue,
                               ),
                             ),
-                          ),
-                          if (_error != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16),
-                              child: Semantics(
-                                liveRegion: true,
-                                child: Text(
-                                  _error!,
-                                  style: const TextStyle(
-                                    color: Color(0xffb42318),
-                                  ),
+                            const SizedBox(height: 24),
+                            Text(
+                              'Bienvenido',
+                              style: Theme.of(context).textTheme.headlineMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text('Ingresa con tu usuario de piloto.'),
+                            const SizedBox(height: 24),
+                            Form(
+                              key: _form,
+                              child: AutofillGroup(
+                                child: Column(
+                                  children: [
+                                    TextFormField(
+                                      controller: _username,
+                                      enabled: !_busy,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Usuario',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.person_outline),
+                                      ),
+                                      autofillHints: const [
+                                        AutofillHints.username,
+                                      ],
+                                      textInputAction: TextInputAction.next,
+                                      autocorrect: false,
+                                      validator: (v) =>
+                                          v == null || v.trim().isEmpty
+                                          ? 'Ingresa tu usuario'
+                                          : v.length > 80
+                                          ? 'Usuario demasiado largo'
+                                          : null,
+                                    ),
+                                    const SizedBox(height: 18),
+                                    TextFormField(
+                                      controller: _password,
+                                      enabled: !_busy,
+                                      obscureText: !_visible,
+                                      decoration: InputDecoration(
+                                        labelText: 'Contraseña',
+                                        border: const OutlineInputBorder(),
+                                        suffixIcon: IconButton(
+                                          tooltip: _visible
+                                              ? 'Ocultar contraseña'
+                                              : 'Mostrar contraseña',
+                                          onPressed: () => setState(
+                                            () => _visible = !_visible,
+                                          ),
+                                          icon: Icon(
+                                            _visible
+                                                ? Icons.visibility_off_outlined
+                                                : Icons.visibility_outlined,
+                                          ),
+                                        ),
+                                      ),
+                                      autofillHints: const [
+                                        AutofillHints.password,
+                                      ],
+                                      textInputAction: TextInputAction.done,
+                                      autocorrect: false,
+                                      enableSuggestions: false,
+                                      onFieldSubmitted: (_) => _login(),
+                                      validator: (v) => v == null || v.isEmpty
+                                          ? 'Ingresa tu contraseña'
+                                          : v.length > 128
+                                          ? 'Contraseña demasiado larga'
+                                          : null,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          const SizedBox(height: 24),
-                          FilledButton(
-                            onPressed: _busy || _scanning || _api == null
-                                ? null
-                                : _login,
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Text(_busy ? 'Conectando...' : 'Ingresar'),
+                            if (_error != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 16),
+                                child: Semantics(
+                                  liveRegion: true,
+                                  child: Text(
+                                    _error!,
+                                    style: const TextStyle(
+                                      color: Color(0xffb42318),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 24),
+                            FilledButton(
+                              onPressed: _busy || _scanning || _api == null
+                                  ? null
+                                  : _login,
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Text(
+                                  _busy ? 'Conectando...' : 'Ingresar',
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: _busy || _scanning || _api == null
-                                ? null
-                                : _scanQr,
-                            icon: const Icon(Icons.qr_code_scanner),
-                            label: const Text('Ingresar con QR'),
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'Acceso temporal con usuarios de prueba. No requiere conexión con Atlas.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xff526078),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _busy || _scanning || _api == null
+                                  ? null
+                                  : _scanQr,
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text('Ingresar con QR'),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),

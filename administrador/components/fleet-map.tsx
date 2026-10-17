@@ -1,0 +1,95 @@
+'use client';
+import 'leaflet/dist/leaflet.css';
+import { divIcon, type LatLngBoundsExpression, type LatLngTuple } from 'leaflet';
+import { useEffect, useMemo, useRef } from 'react';
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import type { LiveTruck, TruckLocation } from '@/lib/live-trucks';
+
+// Guatemala's bounding box (south-west, north-east) with a small margin around the border.
+const GUATEMALA_BOUNDS: LatLngBoundsExpression = [[13.6, -92.4], [17.9, -88.1]];
+
+/** A position older than this is shown as stale: the app sends one every 5 s while tracking. */
+const STALE_AFTER_MS = 60 * 1000;
+
+const clock = new Intl.DateTimeFormat('es-GT', {
+  timeZone: 'America/Guatemala', hour: '2-digit', minute: '2-digit', second: '2-digit',
+});
+
+type LocatedTruck = LiveTruck & { ubicacion: TruckLocation };
+
+// The zoom that fits the whole country depends on the container size, so it is recomputed on resize.
+function LockToGuatemala() {
+  const map = useMap();
+  useEffect(() => {
+    const updateMinZoom = () => { map.setMinZoom(map.getBoundsZoom(GUATEMALA_BOUNDS)); };
+    updateMinZoom();
+    map.on('resize', updateMinZoom);
+    return () => { map.off('resize', updateMinZoom); };
+  }, [map]);
+  return null;
+}
+
+// Frames the trucks once, when the first positions arrive; later refreshes never move the view.
+function FitFirstPositions({ points }: { points: LatLngTuple[] }) {
+  const map = useMap();
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (fitted.current || points.length === 0) return;
+    fitted.current = true;
+    map.fitBounds(points, { padding: [48, 48], maxZoom: 15 });
+  }, [map, points]);
+  return null;
+}
+
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"']/g, char => `&#${char.charCodeAt(0)};`);
+
+function TruckMarker({ truck, stale }: { truck: LocatedTruck; stale: boolean }) {
+  const { lat, lng, velocidad, precision, timestamp } = truck.ubicacion;
+  // Built from HTML so no image assets are needed (Leaflet's default icon breaks with bundlers).
+  const icon = useMemo(() => divIcon({
+    className: 'truck-marker-icon',
+    iconSize: [0, 0],
+    html: `<span class="truck-marker${stale ? ' is-stale' : ''}">` +
+      `<span class="truck-marker-label">${escapeHtml(truck.placa)}</span><span class="truck-marker-dot"></span></span>`,
+  }), [truck.placa, stale]);
+
+  return <Marker position={[lat, lng]} icon={icon} title={truck.placa}>
+    <Popup>
+      <div className="truck-popup">
+        <strong>{truck.placa}</strong>
+        {truck.modelo && <span>{truck.modelo}</span>}
+        <dl>
+          <dt>Conductor</dt><dd>{truck.conductor}</dd>
+          <dt>Velocidad</dt><dd>{velocidad === null ? 'Sin calcular' : `${velocidad} km/h`}</dd>
+          <dt>Última ubicación</dt><dd>{clock.format(new Date(timestamp))}{stale && ' (sin señal reciente)'}</dd>
+          {precision !== null && <><dt>Precisión</dt><dd>±{Math.round(precision)} m</dd></>}
+          <dt>Inicio del viaje</dt><dd>{clock.format(new Date(truck.inicio))}</dd>
+        </dl>
+      </div>
+    </Popup>
+  </Marker>;
+}
+
+export default function FleetMap({ trucks, now }: { trucks: LiveTruck[]; now: number | null }) {
+  const located = useMemo(
+    () => trucks.filter((truck): truck is LocatedTruck => truck.ubicacion !== null),
+    [trucks],
+  );
+  const points = useMemo(
+    () => located.map(({ ubicacion }): LatLngTuple => [ubicacion.lat, ubicacion.lng]),
+    [located],
+  );
+
+  return <MapContainer bounds={GUATEMALA_BOUNDS} maxBounds={GUATEMALA_BOUNDS} maxBoundsViscosity={1}
+    className="fleet-map" scrollWheelZoom>
+    <TileLayer
+      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    />
+    <LockToGuatemala />
+    <FitFirstPositions points={points} />
+    {located.map(truck => <TruckMarker key={truck.tripId} truck={truck}
+      stale={now !== null && now - new Date(truck.ubicacion.timestamp).getTime() > STALE_AFTER_MS} />)}
+  </MapContainer>;
+}

@@ -9,7 +9,7 @@ export function corsHeaders(request: Request) {
   if (origin && allowed.includes(origin)) {
     headers.set('Access-Control-Allow-Origin', origin);
     headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    headers.set('Access-Control-Allow-Headers', 'Content-Type');
+    headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   }
   return headers;
 }

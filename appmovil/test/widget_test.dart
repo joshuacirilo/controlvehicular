@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:control_vehicular/core/api_client.dart';
+import 'package:control_vehicular/core/ping_store.dart';
 import 'package:control_vehicular/main.dart';
 
 void main() {
@@ -20,13 +21,17 @@ void main() {
         if (body['password'] != '123') return http.Response('{}', 401);
         expect(body['username'], 'prueba1');
         return http.Response(
-          '{"mode":"test","user":{"name":"Usuario de prueba"}}',
+          '{"mode":"usuario","user":{"id":"u1","name":"Usuario de prueba"},"token":"t"}',
           200,
         );
       }),
     );
     addTearDown(api.close);
-    await tester.pumpWidget(MaterialApp(home: LoginPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(api: api, store: MemoryPingStore()),
+      ),
+    );
     await tester.enterText(find.byType(TextFormField).at(0), 'prueba1');
     await tester.enterText(find.byType(TextFormField).at(1), 'incorrecta');
     await tester.ensureVisible(find.text('Ingresar'));
