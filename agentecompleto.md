@@ -1,10 +1,11 @@
 # Traspaso para el siguiente agente: Control Vehicular
 
-Actualizado: 16 de octubre de 2026, 21:20 (hora de Guatemala). Rama: `jc_geolocalizacion`.
-Último commit: `4fe5972`. **Todo está commiteado**: el árbol de trabajo está limpio
-(los archivos generados están ignorados). El usuario hace sus propios commits.
+Actualizado: 16 de octubre de 2026, 23:40 (hora de Guatemala). Rama: `jc_geolocalizacion`.
+Último commit: `c5aaf6d`. Todo el código está commiteado; solo esta versión de
+`agentecompleto.md` queda pendiente de commit. Los archivos generados están ignorados.
+El usuario hace sus propios commits.
 
-Este documento resume cinco conversaciones con el mismo usuario:
+Este documento resume seis conversaciones con el mismo usuario:
 
 1. Backend de viajes + GPS + app Flutter.
 2. Panel administrador (sidebar, vistas, mapa Leaflet).
@@ -14,6 +15,10 @@ Este documento resume cinco conversaciones con el mismo usuario:
 5. La última (solo Flutter, sin tocar el backend): **cola offline de ubicaciones en
    SQLite** (sección 7.1) y **seguimiento en segundo plano en Android** con servicio
    en primer plano (sección 7.2).
+6. La más reciente (solo panel Next.js): **revisión senior de este documento** con
+   nuevos riesgos verificados en el código (sección 12), **vista `/camiones`** con
+   capas camión → piloto → rutas paginadas (secciones 6.6 y 8.4) y **mapa ampliado**
+   de cada ruta en una ventana modal.
 
 Léelo completo antes de actuar. El código es la fuente de verdad: verifica antes de
 afirmar.
@@ -37,13 +42,14 @@ archivos completos antes de consultar el grafo.**
    Útiles: `query "startTrip recordPings endTrip guatemalaNow" --budget 800`,
    `query "liveTrucks useLiveTrucks FleetMap" --budget 800`,
    `query "TripTracker PingStore SqlitePingStore backgroundLocationUpdates" --budget 800`,
+   `query "truckHistoryPage driverTrips DriverTrips RouteMiniMap" --budget 800`,
    `explain "handleAdminRequest"`, `explain "buildBrandTheme"`.
    Si `explain` dice "Ambiguous", repite con `ruta::Simbolo` (p. ej.
    `administrador/components/fleet-map.tsx::FleetMap`).
 3. Lee solo lo que el grafo señale. No cargues `graph.json` ni todo `GRAPH_REPORT.md`.
    Si algo no aparece, haz una búsqueda puntual: su ausencia no prueba que no exista.
 4. Tras cada conjunto de cambios de código: `.\graphify.cmd update .` desde la raíz
-   (~773 nodos tras la última actualización). Puede imprimir un aviso de
+   (~820 nodos tras la última actualización). Puede imprimir un aviso de
    "community set changed": es informativo. Si el número de nodos se dispara, revisa
    si indexó código generado (pasó con `appmovil/web/sqflite_sw.js`: +648 nodos) y
    agrégalo a `.graphifyignore`.
@@ -74,7 +80,9 @@ Documentos de rol (léelos según la tarea, tras consultar el grafo):
 
 Desactualizados (no los sigas al pie de la letra): los dos `AGENTS.md` de módulo
 ("plantilla, sin MongoDB, sin login", proponen Mongoose) y `administrador/README.md`
-(sección 9, punto 8).
+(sección 9, punto 8). **Ojo:** Cursor inyecta automáticamente esos `AGENTS.md` como
+reglas al leer archivos de cada módulo; lo que dicen sobre el estado del proyecto es
+falso. Este documento y `server/README.md` mandan.
 
 ## 2. Reglas del usuario (obligatorias)
 
@@ -99,8 +107,11 @@ Desactualizados (no los sigas al pie de la letra): los dos `AGENTS.md` de módul
 - **No ejecutes `npm run build` si hay un `next dev` activo.** En la
   conversación 4 `Get-NetTCPConnection -LocalPort 3000` no devolvió nada y aun así había
   un `next dev` del usuario arrancando; el build se ejecutó en paralelo (sin daño,
-  Next 16 separa `.next/dev`). Comprueba también los procesos:
-  `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Select ProcessId, CommandLine`.
+  Next 16 separa `.next/dev`). La revisión automática **bloquea** listar procesos con
+  `Get-CimInstance Win32_Process`. En su lugar lee las primeras líneas de los archivos
+  de terminal del IDE (metadatos y si hay un comando activo; si la terminal termina en
+  el prompt `PS ...>`, el `next dev` está detenido) y usa
+  `Get-NetTCPConnection -LocalPort 3000 -State Listen`.
 - **No hagas commit ni push** salvo que el usuario lo pida.
 - **No mates procesos que no iniciaste** (el usuario suele tener `next dev` en la
   terminal y Flutter web con `scripts\run-flutter-web.cmd`). Si necesitas reiniciarlos,
@@ -129,7 +140,15 @@ Desactualizados (no los sigas al pie de la letra): los dos `AGENTS.md` de módul
 - **Probar endpoints del panel sin conocer la contraseña**: un `.cjs` temporal lee el
   `_id` del admin, firma un token igual que `server/auth/token.ts`
   (`base64url(JSON{sub, role:'administrador', exp}) + '.' + HMAC-SHA256(AUTH_SECRET)`)
-  y lo manda como cookie `cv_admin=<token>`. Así se probó `GET /api/trucks/live`.
+  y lo manda como cookie `cv_admin=<token>`. Así se probaron `GET /api/trucks/live`,
+  la API de rutas por piloto y el HTML de `/camiones`.
+- **Servidor propio para probar sin tocar el del usuario**: tras un `npm run build`
+  correcto, `npx.cmd next start -p 3100` en segundo plano, probar contra
+  `http://localhost:3100` y detenerlo con `taskkill /T /F /PID <pid que devolvió tu shell>`
+  (solo tu propio proceso). Su salida con código 1 al matarlo es esperada.
+- **Tipos de rutas de Next 16**: `PageProps<'/ruta'>` y `RouteContext<'/api/...'>` son
+  globales generados. Si `tsc` dice que una ruta nueva "does not satisfy the constraint
+  'AppRoutes'", ejecuta `npx.cmd next typegen` (no necesita detener `next dev`).
 - **Redimensionar imágenes**: `Add-Type -AssemblyName System.Drawing` en PowerShell
   (bicúbico de alta calidad, sin instalar nada). Así se generaron todos los íconos.
 - **Smart App Control** bloquea ejecutables sin firma (`os error 4551`). No llames los
@@ -162,7 +181,7 @@ Desactualizados (no los sigas al pie de la letra): los dos `AGENTS.md` de módul
   `PYTHONPATH=.venv-graphify/Lib/site-packages`.
 - Reinstalar: `.\scripts\install-graphify.cmd`. `.graphifyignore` excluye `.pnpm-store/`
   y `appmovil/web/sqflite_sw.js` (JavaScript compilado de sqflite web).
-- Último `update .`: tras el segundo plano de Android (~773 nodos).
+- Último `update .`: tras el mapa ampliado de `/camiones` (~820 nodos).
 
 ## 5. Base de datos Atlas (`trucks_db`)
 
@@ -197,7 +216,7 @@ cambiarlos es infraestructura. Ver sección 6.4. **El resto de colecciones** (`u
 se ofreció pasarlas a -6 y el usuario no respondió. En la revisión técnica se
 recomendó **volver a UTC** en todo (sección 12); sigue pendiente de decidir.
 
-Datos (última comprobación 16/10/2026 ~14:25 Guatemala; pueden haber cambiado):
+Datos (instantánea del 16/10/2026; cambian a menudo, compruébalos antes de afirmarlos):
 
 - `users`: 1, el administrador `admin1` (contraseña en comentarios de `.env.local`).
   **No hay pilotos reales** (`rol:'conductor'`).
@@ -205,10 +224,10 @@ Datos (última comprobación 16/10/2026 ~14:25 Guatemala; pueden haber cambiado)
   `userId: null`).
 - `trucks`: 1, `PRUEBA123` (modelo "Camion de prueba", `qrCode` `TRUCK-PRUEBA123`,
   con `passwordHash`).
-- `trips`: 1 finalizado y 1 **activo** (`PRUEBA123`, "Conductor Demo Uno", inicio
-  13:56:33), ambos del usuario probando con `prueba1`. Su último ping era de las
-  14:13:34 (la app había dejado de enviar), por eso el mapa lo muestra en gris.
-- Entre 14:01:54 y ~14:03:30 se perdieron pings del viaje activo: durante la
+- `trips` (~21:40): 4 **finalizados**, todos de `PRUEBA123` con "Conductor Demo Uno"
+  (el usuario probando con `prueba1`), con 8, 192, 41 y 17 pings. Ninguno activo.
+  Todos marcan 0 km porque se hicieron desde la PC sin moverse (precisión ~149 m).
+- Entre 14:01:54 y ~14:03:30 se perdieron pings de uno de esos viajes: durante la
   transición a -6 el servidor los rechazó como `before_trip` y la app los descartó.
 
 ## 6. Backend Next.js (`administrador/`)
@@ -303,7 +322,28 @@ iniciar cada viaje**.
   ubicacion:{lat, lng, velocidad, precision, timestamp} | null}]}`. `ubicacion` es
   `null` hasta el primer ping. Fechas con `-06:00`. Documentado en `server/README.md`.
 
-### 6.6 Verificación hecha (conversación 4; la 5 no tocó el backend)
+### 6.6 Historial por camión y piloto (conversación 6)
+
+- `server/trucks/history.ts` (`server-only`):
+  - `truckHistoryPage(page)`: todos los camiones ordenados por placa, 10 por página
+    (`TRUCKS_PER_PAGE`), con `$lookup` a `trips` agrupado por `driverId` (`viajes`,
+    `ultimoViaje`, `enCurso`) y nombre desde `drivers`. Una página fuera de rango
+    devuelve la última. La usa directamente la página `/camiones` (sin API).
+  - `driverTrips(truckId, driverId, page)`: viajes de ese piloto en ese camión, del más
+    reciente al más antiguo, 5 por página (`TRIPS_PER_PAGE`). Por viaje lee **todos**
+    sus pings (`coords`, `precision`) ordenados por tiempo, calcula `distanciaKm`
+    (solo suma desplazamientos mayores que la precisión, con un punto ancla; misma
+    idea que `speedKmh`) y reduce la ruta a ~200 coordenadas `[lat, lng]`.
+- `GET /api/trucks/:truckId/drivers/:driverId/trips?page=N`: `handleAdminRequest`
+  primero (401 sin sesión), luego 404 si un id no es ObjectId y 400 si `page` no es un
+  entero ≥ 1. Respuesta `{page, totalPages, total, trips:[{tripId, estado, inicio,
+  fin|null, puntos, distanciaKm, ruta}]}` con fechas `-06:00`.
+- Tipos y constantes compartidos en `lib/truck-history.ts`. `distanceMeters` ahora se
+  exporta desde `server/trips/pings.ts`. Documentado en `server/README.md`.
+- Coste: lee todos los pings de cada viaje mostrado. Si hay viajes de días, guardar un
+  resumen (distancia, ruta reducida) al cerrar el viaje.
+
+### 6.7 Verificación hecha (conversaciones 4 y 6; la 5 no tocó el backend)
 
 Lint correcto; `tsc` limpio (el error viejo de `.next/types` sobre `truck-login`
 desapareció tras el build). `npm run build` correcto (ruta dinámica
@@ -312,6 +352,13 @@ sin cookie 401, con token de conductor 401, con token de admin 200 con `PRUEBA12
 su última posición. El panel sirve `app/icon.png`/`apple-icon.png` y `/favicon.ico`
 da 404 (se borró el de Next). Tras el cambio de marca no se ejecutó `build` porque
 el usuario tenía `next dev` activo.
+
+Conversación 6: lint, `tsc` y `npm run build` correctos tras crear `/camiones`
+(ruta dinámica). Prueba contra Atlas con un `next start -p 3100` propio y cookie de
+admin firmada: API de rutas sin cookie 401, con cookie 200 (`no-store`, 4 viajes),
+`page=0` 400, id inválido 404; `/camiones` con cookie 200 con la placa y el piloto en
+el HTML, sin cookie 307 a `/`. El mapa ampliado (modal) solo pasó lint y `tsc`: el
+usuario tenía `next dev` activo y no se ejecutó build ni se vio en navegador.
 
 ## 7. App Flutter (`appmovil/`)
 
@@ -485,8 +532,13 @@ funcionando en segundo plano en Android.
 
 ### 8.1 Estructura
 
-- Grupo `app/(panel)/`: `/dashboard`, `/mapa`, `/cuentas`, `/perfil`. Dashboard,
-  cuentas y perfil muestran **solo el título** (el usuario pidió "solo crea las vistas").
+- Grupo `app/(panel)/`: `/dashboard`, `/mapa`, `/camiones`, `/cuentas`, `/perfil`.
+  Dashboard, cuentas y perfil muestran **solo el título** (el usuario pidió "solo crea
+  las vistas"). `/camiones` está en la sección 8.4.
+- **Cada página nueva del panel debe llamar `getAdmin()` y hacer `redirect('/')`** si
+  no hay sesión: según la guía de autenticación de Next 16, los layouts no se vuelven
+  a ejecutar en la navegación del cliente, así que el layout no basta. Añade también la
+  ruta al `matcher` de `proxy.ts`.
 - `components/sidebar.tsx`: logo (`/brand-icon.png` con `next/image`), enlaces con
   `aria-current`, avatar con iniciales, nombre, `@usuario` y "Cerrar sesión". Bajo
   768 px solo íconos. `components/icons.tsx`: SVG.
@@ -527,6 +579,41 @@ funcionando en segundo plano en Android.
   (128). Se borró `app/favicon.ico` de Next. Quedan sin usar los SVG de la plantilla
   en `public/` (`next.svg`, `vercel.svg`, `file.svg`, `globe.svg`, `window.svg`).
 
+### 8.4 Vista Camiones (`/camiones`)
+
+Pedido del usuario: un ícono de camiones en el sidebar con una vista "en capas":
+rectángulo por camión, dentro los pilotos que lo han usado y dentro de cada piloto sus
+rutas en recuadros, 5 por página. Decisiones con `AskQuestion`: cada recuadro lleva
+datos del viaje **y mini mapa**; aparecen **todos** los camiones (los que no tienen
+viajes dicen "Sin viajes"), **10 por página**.
+
+- Sidebar: enlace "Camiones" con `TruckIcon` (SVG en `components/icons.tsx`) después
+  de "Mapa". `proxy.ts` incluye `/camiones/:path*`.
+- `app/(panel)/camiones/page.tsx`: Server Component; comprueba `getAdmin()`, lee
+  `searchParams.pagina` (Promise) y llama a `truckHistoryPage`. Cada camión es una
+  `<section class="truck-layer">` con placa, modelo, nº de pilotos y "Inactivo" si
+  aplica. Paginación de camiones con enlaces `?pagina=N`.
+- `components/driver-trips.tsx` (Client Component): cada piloto es un `<details>`
+  desplegable (así no se montan decenas de mapas a la vez). Al abrirlo pide la API de
+  la sección 6.6 (`no-store`, `AbortController`, 401 → `router.replace('/')`) y
+  muestra los recuadros `RouteCard` (estado, inicio, fin, duración, distancia, puntos
+  GPS) con paginación por botones. Fechas con `Intl` en `America/Guatemala`.
+- `components/pagination.tsx`: "Anterior / Página X de Y / Siguiente"; modo enlaces
+  (`hrefFor`, usable desde Server Components) o botones (`onChange`).
+- `components/route-mini-map.tsx`: Leaflet cargado con `dynamic(..., {ssr:false})`.
+  Sin interacción por defecto; con `interactive` permite zoom y arrastre. Polilínea
+  azul, punto de inicio turquesa y de fin azul marino. `FitWhenSized` usa un
+  `ResizeObserver` para reencuadrar la primera vez que el contenedor tiene tamaño real
+  (Leaflet se crea con tamaño 0 dentro de un `<dialog>` aún cerrado).
+- **Mapa ampliado**: botón "Ampliar" sobre cada mini mapa que abre `RouteMapDialog`,
+  un `<dialog>` nativo con `showModal()` (foco atrapado y Escape gratis). Se cierra con
+  la X, Escape o clic en el fondo. Muestra placa · piloto, resumen del viaje, mapa
+  interactivo y leyenda ("Fin" o "Última ubicación" si sigue en curso). CSS bloquea el
+  scroll de la página con `body:has(.route-dialog[open])`.
+- Estilos en `globals.css` (`.truck-layer`, `.driver-layer`, `.route-grid`,
+  `.route-card`, `.route-map-expand`, `.route-dialog*`, `.pagination`,
+  `.status-badge`) con las variables de marca.
+
 ## 9. Decisiones tomadas con el usuario
 
 1. Viaje: el camión se identifica **escaneando su QR**, que contiene placa y
@@ -552,11 +639,17 @@ funcionando en segundo plano en Android.
     automática de la pantalla del viaje).
 13. Segundo plano en Android con servicio en primer plano de geolocator y
     notificación fija; sin `ACCESS_BACKGROUND_LOCATION` (decisión técnica del agente).
+14. Vista `/camiones` en capas (camión → piloto → rutas), con mini mapa en cada ruta,
+    todos los camiones paginados de 10 en 10 y rutas de 5 en 5 (sección 8.4).
+15. Cada mini mapa se puede ampliar en una ventana modal y cerrar (X, Escape o clic
+    fuera).
 
 ## 10. Estado de Git
 
 Rama `jc_geolocalizacion`. Commits recientes del usuario:
 
+- `c5aaf6d` vista `/camiones`, API de rutas por piloto, mapa ampliado y la versión
+  anterior de este documento.
 - `4fe5972` cola offline SQLite + segundo plano Android (incluye `web/sqlite3.wasm`,
   `web/sqflite_sw.js`, `.graphifyignore` y este documento en su versión anterior).
 - `30cfafd` marca e identidad visual.
@@ -572,37 +665,74 @@ Restos locales fuera de Git: la carpeta vacía `administrador/app/api/auth/truck
 
 1. **Decidir la zona horaria** (UTC en la base y conversión al mostrar, frente a
    UTC-6 actual) **antes** de escribir más código que lea fechas. Usar `AskQuestion`.
-   Hoy migrar es barato (2 viajes).
-2. **Crear pilotos reales**: script `user:create` que inserte en `users`
+   Hoy migrar es barato (4 viajes de prueba). Lectores de fechas: `service.ts`,
+   `trucks/live.ts`, `trucks/history.ts` (todos vía `server/time.ts`).
+2. **Pruebas del backend**: no existe ninguna ni script `test` en `package.json`.
+   Cubrir al menos `startTrip` (concurrencia), `storePings` (idempotencia, cierre,
+   `before_trip`), `server/time.ts`, `checkCredentials` y `routeSummary`. Elegir el
+   runner con el usuario (p. ej. `node:test` sin dependencias o Vitest).
+3. **Cola atascada por un lote venenoso** (sección 12): convertir en el servidor el
+   error de validación de Mongo (código 121) en `rejected` por ping, y en Flutter
+   aislar un lote que falle con 5xx de forma repetida.
+4. **Crear pilotos reales**: script `user:create` que inserte en `users`
    (`rol:'conductor'`, hash scrypt) y vincule `drivers.userId`. Hoy solo entra
    `prueba1` y solo en desarrollo local.
-3. **Limitar intentos por IP** en ambos logins (hoy cualquiera puede bloquear `admin1`
-   o un piloto con 5 intentos cada 15 min).
-4. Que `startTrip` informe si el primer ping fue rechazado y que Flutter no lo cuente
+5. **Limitar intentos por IP** en ambos logins (hoy cualquiera puede bloquear `admin1`
+   o un piloto con 5 intentos cada 15 min) y ejecutar scrypt también con la cuenta
+   bloqueada.
+6. Índice único parcial de viaje activo por `driverId` (infraestructura: **pedir
+   permiso**) y arreglar el N+1 de `storePings`.
+7. Que `startTrip` informe si el primer ping fue rechazado y que Flutter no lo cuente
    como enviado.
-5. **Verificar en dispositivo y navegador** lo de la última conversación: cola SQLite
-   en Chrome (posible desajuste wasm 3.6.0 / Dart `sqlite3` 3.5.2) y segundo plano en
-   un Android real (lo prueba el usuario con `flutter run`; el agente no lanza Android).
-6. Cola persistente: **hecha** (sección 7.1). Falta, si el usuario lo pide, restaurar
+8. **Verificar en dispositivo y navegador**: cola SQLite en Chrome (posible desajuste
+   wasm 3.6.0 / Dart `sqlite3` 3.5.2), segundo plano en un Android real (lo prueba el
+   usuario con `flutter run`; el agente no lanza Android) y el **mapa ampliado** de
+   `/camiones` (no se vio en navegador ni pasó por build).
+9. Cola persistente: **hecha** (sección 7.1). Falta, si el usuario lo pide, restaurar
    el viaje al reabrir la app (persistir viaje y token de forma segura) en vez de
    volver a escanear el QR.
-7. Tiempo real con menos latencia (SSE/WebSocket) si se exige RNF01 de 3-5 s.
-8. Cierre por QR (RF07) si el usuario lo confirma.
-9. Historial filtrable de viajes y detalle con recorrido (RF11-RF14). Contenido de
-   dashboard, cuentas (CRUD de camiones/pilotos) y perfil.
-10. Segundo plano Android: **hecho** (sección 7.2). Opcional: pedir permiso de
+10. Tiempo real con menos latencia (SSE/WebSocket) si se exige RNF01 de 3-5 s.
+11. Cierre por QR (RF07) si el usuario lo confirma.
+12. Historial: **vista por camión/piloto hecha** (sección 8.4). Falta, si se pide:
+    filtros por fecha (RF13), ruta planeada (RF11) y resumen guardado al cerrar el
+    viaje para no leer todos los pings. Contenido de dashboard, cuentas (CRUD de
+    camiones/pilotos) y perfil.
+13. Segundo plano Android: **hecho** (sección 7.2). Opcional: pedir permiso de
     notificaciones (Android 13+) y seguir tras cerrar la app desde recientes. iOS
     sigue sin carpeta `ios/` (`NSLocationWhenInUseUsageDescription`, modos de fondo).
-11. Un solo gestor de paquetes (pnpm) y corregir `administrador/README.md`
-    (**pedir confirmación**). Actualizar los `AGENTS.md` de módulo.
-12. Limpieza menor: borrar la carpeta vacía `truck-login/` y los SVG de plantilla de
+14. Un solo gestor de paquetes (pnpm) y corregir `administrador/README.md`
+    (**pedir confirmación**). **Reescribir los `AGENTS.md` de módulo** (Cursor los
+    inyecta como reglas y describen un proyecto que ya no existe).
+15. Limpieza menor: borrar la carpeta vacía `truck-login/` y los SVG de plantilla de
     `public/` (pedir confirmación).
-13. Eliminar el login de prueba antes de producción.
+16. Eliminar el login de prueba antes de producción.
+17. Este documento creció a ~800 líneas. Recomendado (con permiso): mover lo estable
+    (contrato, esquema, trucos del entorno) a `server/README.md` y los `AGENTS.md` de
+    módulo, y dejar aquí solo estado, decisiones, pendientes y riesgos.
 
 ## 12. Revisión técnica: riesgos y avisos
 
 Hallazgos de la revisión de la conversación 4 (verificados en el código), con notas
-actualizadas tras la conversación 5:
+actualizadas tras la conversación 5. La revisión de la conversación 6 volvió a
+confirmar en el código los de fechas, bloqueo de cuentas, dos viajes por piloto, token
+irrevocable y N+1, y añadió estos:
+
+- **Sin pruebas en el backend** (sección 11, punto 2). La lógica más delicada no tiene
+  cobertura; Flutter sí tiene 26 pruebas.
+- **Lote venenoso atasca la cola offline** (`_deliver` en
+  `appmovil/lib/core/trip_tracker.dart`): ante un 5xx reintenta el mismo lote para
+  siempre con espera creciente, y `next()` siempre devuelve el viaje más antiguo. Si un
+  documento de ping incumple el `$jsonSchema` estricto, el servidor responde 500 cada
+  vez y ninguna ubicación posterior de ese piloto sube.
+- **Bloqueo de cuentas también por tiempo**: con la cuenta bloqueada,
+  `checkCredentials` responde sin ejecutar scrypt, lo que revela que existe además
+  del 429.
+- **Carrera ping / cierre** (leve): `recordPings` lee el viaje sin `fin`; si `endTrip`
+  se confirma justo entre medias, `storePings` guarda pings posteriores al cierre.
+- **Velocidad con pings fuera de orden** (leve): al insertar un ping anterior a otros
+  ya guardados no se recalcula la velocidad del siguiente.
+
+Hallazgos anteriores:
 
 - **Fechas desplazadas a UTC-6** (`server/time.ts`): antipatrón. Ya causó pérdida de
   pings; mezcla convenciones (viajes en -6, cuentas en UTC); cualquier
@@ -637,6 +767,7 @@ actualizadas tras la conversación 5:
   Guatemala.
 - Mosaicos públicos de OpenStreetMap: política de uso justo; en producción usar un
   proveedor propio o contratado. Cada admin con `/mapa` abierto consulta Atlas cada 5 s.
+  `/camiones` añade hasta 5 mini mapas por piloto desplegado (más mosaicos).
 
 ## 13. Verificación rápida
 
@@ -648,8 +779,8 @@ actualizadas tras la conversación 5:
 cd administrador
 npm.cmd run db:check
 npm.cmd run lint
-npx.cmd tsc --noEmit
-npm.cmd run build      # solo si no hay un next dev activo (revisa puerto y procesos)
+npx.cmd tsc --noEmit   # si una ruta nueva falla con 'AppRoutes': npx.cmd next typegen
+npm.cmd run build      # solo si no hay un next dev activo (puerto 3000 y terminales)
 npm.cmd run dev        # http://localhost:3000 (panel: admin1; app: prueba1 / 123)
 
 # Flutter
