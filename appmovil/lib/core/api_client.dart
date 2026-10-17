@@ -105,12 +105,36 @@ class ApiClient {
     if (data['tripId'] is! String || info is! Map || info['placa'] is! String) {
       throw const ApiException('Respuesta del servidor inesperada.');
     }
-    return TripInfo(
-      id: data['tripId'] as String,
-      plate: info['placa'] as String,
-      model: info['modelo'] is String ? info['modelo'] as String : '',
+    return _tripInfo(data['tripId'] as String, info, data['inicio']);
+  }
+
+  /// The pilot's active trip on the server, or null when there is none.
+  Future<TripInfo?> activeTrip(String token) async {
+    final data = await _send('GET', 'trips/active', token);
+    final trip = data['trip'];
+    if (trip == null) return null;
+    if (trip is! Map ||
+        trip['tripId'] is! String ||
+        trip['truck'] is! Map ||
+        trip['truck']['placa'] is! String) {
+      throw const ApiException('Respuesta del servidor inesperada.');
+    }
+    return _tripInfo(
+      trip['tripId'] as String,
+      trip['truck'] as Map,
+      trip['inicio'],
     );
   }
+
+  /// Revokes the session on the server, on every device of the pilot.
+  Future<void> logout(String token) => _post('auth/logout', token, const {});
+
+  TripInfo _tripInfo(String id, Map truck, Object? startedAt) => TripInfo(
+    id: id,
+    plate: truck['placa'] as String,
+    model: truck['modelo'] is String ? truck['modelo'] as String : '',
+    startedAt: startedAt is String ? DateTime.tryParse(startedAt) : null,
+  );
 
   Future<PingResult> sendPings(
     String token,
@@ -153,22 +177,27 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> _post(
+  Future<Map<String, dynamic>> _post(String path, String token, Object body) =>
+      _send('POST', path, token, body);
+
+  Future<Map<String, dynamic>> _send(
+    String method,
     String path,
-    String token,
-    Object body,
-  ) async {
+    String token, [
+    Object? body,
+  ]) async {
     final http.Response response;
     try {
+      final request = http.Request(method, baseUrl.resolve(path))
+        ..headers['Authorization'] = 'Bearer $token';
+      if (body != null) {
+        request
+          ..headers['Content-Type'] = 'application/json'
+          ..body = jsonEncode(body);
+      }
       response = await _client
-          .post(
-            baseUrl.resolve(path),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(body),
-          )
+          .send(request)
+          .then(http.Response.fromStream)
           .timeout(const Duration(seconds: 15));
     } on Exception {
       throw const ApiException('No se pudo conectar con el servidor.');
@@ -200,10 +229,21 @@ class AuthSession {
 }
 
 class TripInfo {
-  const TripInfo({required this.id, required this.plate, required this.model});
+  const TripInfo({
+    required this.id,
+    required this.plate,
+    required this.model,
+    this.startedAt,
+  });
   final String id;
   final String plate;
   final String model;
+
+  /// Start of the trip as a real instant; null when the server did not send it.
+  final DateTime? startedAt;
+
+  TripInfo withStart(DateTime startedAt) =>
+      TripInfo(id: id, plate: plate, model: model, startedAt: startedAt);
 }
 
 /// One device location sample. [id] stays the same across retries so the

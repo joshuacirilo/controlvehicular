@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'package:control_vehicular/core/api_client.dart';
 import 'package:control_vehicular/core/ping_store.dart';
 import 'package:control_vehicular/core/qr_credentials.dart';
+import 'package:control_vehicular/core/session_store.dart';
 import 'package:control_vehicular/core/trip_tracker.dart';
+import 'package:control_vehicular/login_page.dart';
 import 'package:control_vehicular/trip_home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,7 +20,11 @@ class _FakeServer {
   final requests = <http.Request>[];
   int failingPings = 0;
   bool sessionExpired = false;
+  bool offline = false;
   String busyPlate = 'BUSY';
+
+  /// Response body of GET /api/trips/active.
+  String activeTrip = '{"trip":null}';
 
   late final api = ApiClient(client: MockClient(_handle));
 
@@ -33,9 +39,20 @@ class _FakeServer {
 
   Future<http.Response> _handle(http.Request request) async {
     requests.add(request);
+    if (offline) throw http.ClientException('offline');
     expectSync(request.headers['Authorization'], 'Bearer token-1');
-    final body = jsonDecode(request.body) as Map;
+    final body = request.body.isEmpty ? {} : jsonDecode(request.body) as Map;
     final path = request.url.path;
+    if (path == '/api/trips/active') {
+      expectSync(request.method, 'GET');
+      if (sessionExpired) {
+        return http.Response('{"message":"Sesión cerrada."}', 401);
+      }
+      return http.Response(activeTrip, 200, headers: _json);
+    }
+    if (path == '/api/auth/logout') {
+      return http.Response('{"loggedOut":true}', 200, headers: _json);
+    }
     if (path == '/api/trips/start') {
       if (body['placa'] == busyPlate) {
         return http.Response(
@@ -113,17 +130,17 @@ Future<(_FakeServer, TripTracker)> _pumpTrip(
   TruckCredentials? qr = _truckQr,
   VoidCallback? onLogout,
   PingStore? store,
+  SessionStore? sessions,
   Stream<Position> Function()? watch,
 }) async {
-  tester.view.physicalSize = const Size(800, 1800);
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.reset);
+  _tallView(tester);
   final server = _FakeServer();
   final tracker = TripTracker(
     api: server.api,
     token: 'token-1',
     userId: 'user-1',
     store: store,
+    sessionStore: sessions,
     locate: _locate,
     watch: watch,
   );
@@ -140,6 +157,12 @@ Future<(_FakeServer, TripTracker)> _pumpTrip(
   await tester.tap(find.text('Iniciar viaje'));
   await tester.pump(const Duration(milliseconds: 10));
   return (server, tracker);
+}
+
+void _tallView(WidgetTester tester) {
+  tester.view.physicalSize = const Size(800, 1800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
 }
 
 /// The periodic tracking timer must be gone before the test body returns.
@@ -192,7 +215,7 @@ void main() {
       watch: () => positions.stream,
     );
     expect(positions.hasListener, isTrue);
-    expect(find.textContaining('No cierres la app'), findsOneWidget);
+    expect(find.textContaining('cerrar la app'), findsOneWidget);
     final fixes = _fix;
 
     final base = DateTime.now();
@@ -317,24 +340,30 @@ void main() {
     await _finish(tester, tracker);
   });
 
-  testWidgets('Expired session stops tracking and asks to log in again', (
-    tester,
-  ) async {
-    var loggedOut = false;
-    final (server, tracker) = await _pumpTrip(
-      tester,
-      onLogout: () => loggedOut = true,
-    );
-    server.sessionExpired = true;
-    await tester.pump(_tick);
-    expect(find.text('Volver a iniciar sesión'), findsOneWidget);
-    final requests = server.requests.length;
-    await tester.pump(_tick * 3);
-    expect(server.requests, hasLength(requests));
-    await tester.tap(find.text('Volver a iniciar sesión'));
-    expect(loggedOut, isTrue);
-    await _finish(tester, tracker);
-  });
+  testWidgets(
+    'Closed session stops tracking, is forgotten and asks to log in',
+    (tester) async {
+      var loggedOut = false;
+      final sessions = MemorySessionStore(
+        session: const AuthSession('user-1', 'Conductor', 'token-1'),
+      );
+      final (server, tracker) = await _pumpTrip(
+        tester,
+        sessions: sessions,
+        onLogout: () => loggedOut = true,
+      );
+      server.sessionExpired = true;
+      await tester.pump(_tick);
+      expect(find.text('Volver a iniciar sesión'), findsOneWidget);
+      expect(sessions.session, isNull);
+      final requests = server.requests.length;
+      await tester.pump(_tick * 3);
+      expect(server.requests, hasLength(requests));
+      await tester.tap(find.text('Volver a iniciar sesión'));
+      expect(loggedOut, isTrue);
+      await _finish(tester, tracker);
+    },
+  );
 
   testWidgets('Busy truck shows the server message without tracking', (
     tester,
@@ -371,5 +400,121 @@ void main() {
       findsOneWidget,
     );
     await _finish(tester, tracker);
+  });
+
+  testWidgets('The active trip is saved on start and forgotten on end', (
+    tester,
+  ) async {
+    final sessions = MemorySessionStore();
+    final (_, tracker) = await _pumpTrip(tester, sessions: sessions);
+    expect(sessions.trip?.id, 'trip-1');
+    expect(sessions.trip?.plate, 'PRUEBA123');
+    expect(sessions.trip?.startedAt, isNotNull);
+
+    await tester.tap(find.text('Terminar viaje'));
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(tracker.status, TripStatus.idle);
+    expect(sessions.trip, isNull);
+    await _finish(tester, tracker);
+  });
+
+  testWidgets('Reopening the app restores the session and the server trip', (
+    tester,
+  ) async {
+    _tallView(tester);
+    final server = _FakeServer()
+      ..activeTrip =
+          '{"trip":{"tripId":"trip-1","inicio":"2026-10-17T01:03:03.057-06:00",'
+          '"truck":{"placa":"PRUEBA123","modelo":"Hino 500"}}}';
+    final sessions = MemorySessionStore(
+      session: const AuthSession('user-1', 'Conductor', 'token-1'),
+    );
+    final positions = StreamController<Position>.broadcast();
+    addTearDown(positions.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          api: server.api,
+          store: MemoryPingStore(),
+          sessionStore: sessions,
+          locate: _locate,
+          watch: () => positions.stream,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(find.text('Bienvenido'), findsNothing);
+    expect(find.text('Hola, Conductor'), findsOneWidget);
+    expect(find.text('PRUEBA123 · Hino 500'), findsOneWidget);
+    expect(find.text('Viaje en curso'), findsOneWidget);
+    expect(
+      server.requests.where((r) => r.url.path == '/api/trips/start'),
+      isEmpty,
+      reason: 'resuming must not ask for the truck QR',
+    );
+    expect(sessions.trip?.startedAt, DateTime.utc(2026, 10, 17, 7, 3, 3, 57));
+    expect(positions.hasListener, isTrue);
+
+    positions.add(_positionAt(DateTime.now()));
+    await tester.pump(_tick);
+    expect(server.pings, hasLength(1));
+    expect(server.pings.single.url.path, '/api/trips/trip-1/ping');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('Offline, the trip saved on the device is resumed and synced', (
+    tester,
+  ) async {
+    final server = _FakeServer()..offline = true;
+    final sessions = MemorySessionStore(
+      trip: TripInfo(
+        id: 'trip-1',
+        plate: 'PRUEBA123',
+        model: 'Hino 500',
+        startedAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      ),
+    );
+    final tracker = TripTracker(
+      api: server.api,
+      token: 'token-1',
+      userId: 'user-1',
+      sessionStore: sessions,
+      locate: _locate,
+    );
+    unawaited(tracker.resumeActiveTrip());
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(tracker.status, TripStatus.active);
+    expect(tracker.trip?.plate, 'PRUEBA123');
+
+    await tester.pump(_tick);
+    expect(tracker.pendingCount, 1);
+    expect(tracker.online, isFalse);
+
+    server.offline = false;
+    await tester.pump(_tick);
+    expect(server.pings, isNotEmpty);
+    expect(tracker.pendingCount, 0);
+    expect(tracker.online, isTrue);
+    tracker.dispose();
+  });
+
+  testWidgets('A trip closed on the server is not resumed', (tester) async {
+    final server = _FakeServer();
+    final sessions = MemorySessionStore(
+      trip: const TripInfo(id: 'trip-1', plate: 'PRUEBA123', model: ''),
+    );
+    final tracker = TripTracker(
+      api: server.api,
+      token: 'token-1',
+      userId: 'user-1',
+      sessionStore: sessions,
+      locate: _locate,
+    );
+    unawaited(tracker.resumeActiveTrip());
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(tracker.status, TripStatus.idle);
+    expect(sessions.trip, isNull);
+    tracker.dispose();
   });
 }

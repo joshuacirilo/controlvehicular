@@ -43,7 +43,7 @@ async function collections() {
   return {
     trips: db.collection<Trip>('trips'),
     pings: db.collection<LocationPing>('locationPings'),
-    drivers: db.collection<{ _id: ObjectId; activo: boolean }>('drivers'),
+    trucks: db.collection<{ _id: ObjectId; placa: string; modelo: string }>('trucks'),
   };
 }
 
@@ -56,11 +56,9 @@ export type TruckQr = { placa: string; password: string };
  */
 export async function startTrip(session: DriverSession, qr: TruckQr | null, firstPing: PingInput | null) {
   if (!qr) return fail(400, 'Escanea el QR del camión para iniciar el viaje.');
-  const { trips, drivers } = await collections();
+  const { trips } = await collections();
+  // authenticateDriver already confirmed that the driver is active and linked to this user.
   const driverId = new ObjectId(session.driverId);
-  if (!await drivers.findOne({ _id: driverId, activo: true }, { projection: { _id: 1 } })) {
-    return fail(403, 'Tu usuario no está vinculado a un conductor activo.');
-  }
   const verified = await verifyTruck(qr.placa, qr.password);
   if (!verified.ok) return verified;
   const truck = verified.body;
@@ -155,6 +153,27 @@ export async function recordPings(session: DriverSession, tripId: ObjectId, inpu
       accepted,
       rejected,
       latest: latest && { velocidad: latest.velocidad, timestamp: formatGuatemala(latest.timestamp) },
+    },
+  };
+}
+
+/** Returns the driver's active trip, so the app can resume it after a restart without the truck QR. */
+export async function activeTrip(session: DriverSession) {
+  const { trips, trucks } = await collections();
+  const trip = await trips.findOne(
+    { driverId: new ObjectId(session.driverId), estado: 'activo' },
+    { sort: { inicio: -1, _id: -1 } },
+  );
+  const truck = trip && await trucks.findOne({ _id: trip.truckId }, { projection: { placa: 1, modelo: 1 } });
+  return {
+    ok: true as const,
+    status: 200,
+    body: {
+      trip: trip && {
+        tripId: trip._id.toHexString(),
+        inicio: formatGuatemala(trip.inicio),
+        truck: { placa: truck?.placa ?? '', modelo: truck?.modelo ?? '' },
+      },
     },
   };
 }

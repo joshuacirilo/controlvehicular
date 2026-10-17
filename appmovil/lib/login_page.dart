@@ -1,21 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import 'core/api_client.dart';
 import 'core/brand.dart';
 import 'core/location_service.dart';
 import 'core/ping_store.dart';
 import 'core/qr_credentials.dart';
+import 'core/session_store.dart';
 import 'core/trip_tracker.dart';
 import 'qr_scan_page.dart';
 import 'trip_home_page.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, this.api, this.scanQr, this.store});
+  const LoginPage({
+    super.key,
+    this.api,
+    this.scanQr,
+    this.store,
+    this.sessionStore,
+    this.locate,
+    this.watch,
+  });
   final Future<QrCredentials?> Function(BuildContext)? scanQr;
   final ApiClient? api;
 
   /// Queue for location samples; the device database when null.
   final PingStore? store;
+
+  /// Saved session and trip; the platform's secure storage when null.
+  final SessionStore? sessionStore;
+
+  /// Location sources for tests; the device GPS when null.
+  final Future<Position> Function()? locate;
+  final Stream<Position> Function()? watch;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -27,20 +46,78 @@ class _LoginPageState extends State<LoginPage> {
   ApiClient? _api;
   bool _busy = false, _visible = false;
   bool _scanning = false;
+  bool _restoring = true;
   String? _error;
   AuthSession? _session;
   TripTracker? _tracker;
   late final Future<PingStore> _store;
+  late final SessionStore _sessions;
   @override
   void initState() {
     super.initState();
     _store = widget.store != null
         ? Future.value(widget.store!)
         : openPingStore();
+    _sessions = widget.sessionStore ?? SecureSessionStore();
     try {
       _api = widget.api ?? ApiClient();
     } catch (_) {
       _error = 'Falta configurar una dirección válida del servidor.';
+    }
+    _restoreSession();
+  }
+
+  /// The session survives app restarts: only an explicit logout ends it.
+  Future<void> _restoreSession() async {
+    try {
+      final session = _api == null ? null : await _sessions.read();
+      if (session != null && mounted) await _open(session);
+    } catch (_) {
+      // Without a readable session the pilot signs in again.
+    } finally {
+      if (mounted) setState(() => _restoring = false);
+    }
+  }
+
+  Future<void> _open(AuthSession session) async {
+    final store = await _store;
+    if (!mounted) return;
+    final tracker = TripTracker(
+      api: _api!,
+      token: session.token,
+      userId: session.userId,
+      store: store,
+      sessionStore: _sessions,
+      locate: widget.locate,
+      watch:
+          widget.watch ??
+          (backgroundTrackingSupported ? backgroundLocationUpdates : null),
+    );
+    setState(() {
+      _session = session;
+      _tracker = tracker;
+    });
+    unawaited(tracker.resumeActiveTrip());
+  }
+
+  Future<void> _logout() async {
+    final session = _session;
+    _tracker?.dispose();
+    setState(() {
+      _tracker = null;
+      _session = null;
+      _error = null;
+      _visible = false;
+      _username.clear();
+      _password.clear();
+    });
+    try {
+      await _sessions.clear();
+    } catch (_) {}
+    // Best effort: without connection the token stays valid on the server
+    // but is no longer on the device.
+    if (session != null) {
+      unawaited(_api?.logout(session.token).catchError((_) {}));
     }
   }
 
@@ -86,19 +163,14 @@ class _LoginPageState extends State<LoginPage> {
     });
     try {
       final session = await login();
-      final store = await _store;
+      try {
+        await _sessions.save(session);
+      } catch (_) {
+        // The session still works now; it just will not survive a restart.
+      }
       if (!mounted) return;
       _password.clear();
-      setState(() {
-        _session = session;
-        _tracker = TripTracker(
-          api: _api!,
-          token: session.token,
-          userId: session.userId,
-          store: store,
-          watch: backgroundTrackingSupported ? backgroundLocationUpdates : null,
-        );
-      });
+      await _open(session);
     } on LoginException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -128,15 +200,12 @@ class _LoginPageState extends State<LoginPage> {
       ? TripHomePage(
           name: _session!.name,
           tracker: _tracker!,
-          onLogout: () => setState(() {
-            _tracker?.dispose();
-            _tracker = null;
-            _session = null;
-            _error = null;
-            _visible = false;
-            _username.clear();
-            _password.clear();
-          }),
+          onLogout: _logout,
+        )
+      : _restoring
+      ? const Scaffold(
+          backgroundColor: BrandColors.navy,
+          body: Center(child: CircularProgressIndicator(color: Colors.white)),
         )
       : Scaffold(
           backgroundColor: BrandColors.navy,

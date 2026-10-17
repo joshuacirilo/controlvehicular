@@ -21,6 +21,8 @@ export type UserDoc = {
   failedLogins?: number;
   lockedUntil?: Date | null;
   lastLoginAt?: Date;
+  /** Pilot tokens carry this value; incrementing it revokes all of them. */
+  sessionVersion?: number;
   createdAt: Date;
   updatedAt: Date;
 };
