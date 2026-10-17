@@ -4,3 +4,4 @@
 .agents/
 graphify-out/
 .pnpm-store/
+appmovil/web/sqflite_sw.js

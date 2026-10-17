@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:control_vehicular/core/api_client.dart';
+import 'package:control_vehicular/core/ping_store.dart';
 import 'package:control_vehicular/core/qr_credentials.dart';
 import 'package:control_vehicular/core/trip_tracker.dart';
 import 'package:control_vehicular/trip_home_page.dart';
@@ -31,7 +33,7 @@ class _FakeServer {
 
   Future<http.Response> _handle(http.Request request) async {
     requests.add(request);
-    expect(request.headers['Authorization'], 'Bearer token-1');
+    expectSync(request.headers['Authorization'], 'Bearer token-1');
     final body = jsonDecode(request.body) as Map;
     final path = request.url.path;
     if (path == '/api/trips/start') {
@@ -86,10 +88,14 @@ class _FakeServer {
 var _fix = 0;
 Future<Position> _locate() async {
   _fix++;
+  return _positionAt(DateTime.now());
+}
+
+Position _positionAt(DateTime timestamp) {
   return Position(
     latitude: 14.6349 + _fix * 0.0005,
     longitude: -90.5069,
-    timestamp: DateTime.now(),
+    timestamp: timestamp,
     accuracy: 5,
     altitude: 0,
     altitudeAccuracy: 0,
@@ -106,6 +112,8 @@ Future<(_FakeServer, TripTracker)> _pumpTrip(
   WidgetTester tester, {
   TruckCredentials? qr = _truckQr,
   VoidCallback? onLogout,
+  PingStore? store,
+  Stream<Position> Function()? watch,
 }) async {
   tester.view.physicalSize = const Size(800, 1800);
   tester.view.devicePixelRatio = 1;
@@ -114,7 +122,10 @@ Future<(_FakeServer, TripTracker)> _pumpTrip(
   final tracker = TripTracker(
     api: server.api,
     token: 'token-1',
+    userId: 'user-1',
+    store: store,
     locate: _locate,
+    watch: watch,
   );
   await tester.pumpWidget(
     MaterialApp(
@@ -171,6 +182,37 @@ void main() {
     await _finish(tester, tracker);
   });
 
+  testWidgets('Background stream feeds the samples and stops with the trip', (
+    tester,
+  ) async {
+    final positions = StreamController<Position>.broadcast();
+    addTearDown(positions.close);
+    final (server, tracker) = await _pumpTrip(
+      tester,
+      watch: () => positions.stream,
+    );
+    expect(positions.hasListener, isTrue);
+    expect(find.textContaining('No cierres la app'), findsOneWidget);
+    final fixes = _fix;
+
+    final base = DateTime.now();
+    positions
+      ..add(_positionAt(base.add(_tick)))
+      ..add(_positionAt(base.add(_tick + const Duration(seconds: 1))));
+    await tester.pump(_tick);
+    expect(server.pingIds(server.pings.single), hasLength(1));
+    positions.add(_positionAt(base.add(_tick * 2)));
+    await tester.pump(_tick);
+    expect(server.pings, hasLength(2));
+    expect(_fix, fixes);
+
+    await tester.tap(find.text('Terminar viaje'));
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(server.ends, hasLength(1));
+    expect(positions.hasListener, isFalse);
+    await _finish(tester, tracker);
+  });
+
   testWidgets('Failed pings stay queued and retry with the same ids', (
     tester,
   ) async {
@@ -188,6 +230,71 @@ void main() {
     expect(find.text('Conectado'), findsOneWidget);
     expect(find.textContaining('Pendientes: 0'), findsOneWidget);
     await _finish(tester, tracker);
+  });
+
+  testWidgets('Samples taken offline survive a restart and are sent later', (
+    tester,
+  ) async {
+    final store = MemoryPingStore();
+    final (server, tracker) = await _pumpTrip(tester, store: store);
+    server.failingPings = 100;
+    await tester.pump(_tick);
+    await tester.pump(_tick);
+    expect(tracker.pendingCount, 2);
+    final offline = {for (final r in server.pings) ...server.pingIds(r)};
+    expect(offline, hasLength(2));
+    await _finish(tester, tracker);
+
+    server.failingPings = 0;
+    final before = server.pings.length;
+    final restarted = TripTracker(
+      api: server.api,
+      token: 'token-1',
+      userId: 'user-1',
+      store: store,
+      locate: _locate,
+    );
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(server.pings, hasLength(before + 1));
+    expect(server.pingIds(server.pings.last).toSet(), offline);
+    expect(server.pings.last.url.path, '/api/trips/trip-1/ping');
+    expect(restarted.pendingCount, 0);
+    expect(restarted.sentCount, 2);
+    expect(restarted.status, TripStatus.idle);
+    final requests = server.requests.length;
+    await tester.pump(_tick * 3);
+    expect(server.requests, hasLength(requests));
+    restarted.dispose();
+  });
+
+  testWidgets('Stored samples of another pilot are left untouched', (
+    tester,
+  ) async {
+    final store = MemoryPingStore();
+    await store.add(
+      'other-pilot',
+      'trip-1',
+      PingSample(
+        id: 'a' * 32,
+        latitude: 14.6,
+        longitude: -90.5,
+        accuracy: 5,
+        timestamp: DateTime.now().toUtc(),
+      ),
+    );
+    final server = _FakeServer();
+    final tracker = TripTracker(
+      api: server.api,
+      token: 'token-1',
+      userId: 'user-1',
+      store: store,
+      locate: _locate,
+    );
+    await tester.pump(_tick * 2);
+    expect(server.requests, isEmpty);
+    expect(tracker.pendingCount, 0);
+    expect(await store.count('other-pilot'), 1);
+    tracker.dispose();
   });
 
   testWidgets('Trip stays active while samples cannot be delivered', (

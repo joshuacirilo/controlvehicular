@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'dart:ui';
+
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -73,6 +75,44 @@ Future<Position> currentLocation({
     throw const LocationException(LocationIssue.unavailable);
   }
 }
+
+/// Whether [backgroundLocationUpdates] can keep tracking with the app in the
+/// background on this platform.
+bool get backgroundTrackingSupported =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+/// Android position updates every [interval] that keep arriving while the app
+/// is in the background: listening runs a foreground service with an ongoing
+/// notification, stopped when the subscription is cancelled. Call
+/// [currentLocation] first so the permission is already granted.
+Stream<Position> backgroundLocationUpdates({
+  Duration interval = const Duration(seconds: 5),
+}) => Geolocator.getPositionStream(
+  locationSettings: AndroidSettings(
+    accuracy: LocationAccuracy.high,
+    intervalDuration: interval,
+    foregroundNotificationConfig: const ForegroundNotificationConfig(
+      notificationTitle: 'Viaje en curso',
+      notificationText: 'Control vehicular está registrando tu ubicación.',
+      notificationChannelName: 'Seguimiento del viaje',
+      // Kept in release builds by res/raw/keep.xml: it is only looked up by name.
+      notificationIcon: AndroidResource(name: 'ic_notification'),
+      color: Color(0xff01215a),
+      enableWakeLock: true,
+      setOngoing: true,
+    ),
+  ),
+);
+
+/// Maps errors from the position stream to a [LocationException].
+LocationException locationErrorFrom(Object error) => switch (error) {
+  LocationException() => error,
+  PermissionDeniedException() => const LocationException(LocationIssue.denied),
+  LocationServiceDisabledException() => const LocationException(
+    LocationIssue.serviceDisabled,
+  ),
+  _ => const LocationException(LocationIssue.unavailable),
+};
 
 Future<void> openLocationSettingsFor(LocationIssue issue) async {
   if (issue == LocationIssue.serviceDisabled) {

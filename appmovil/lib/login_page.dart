@@ -2,15 +2,20 @@ import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
 import 'core/brand.dart';
+import 'core/location_service.dart';
+import 'core/ping_store.dart';
 import 'core/qr_credentials.dart';
 import 'core/trip_tracker.dart';
 import 'qr_scan_page.dart';
 import 'trip_home_page.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, this.api, this.scanQr});
+  const LoginPage({super.key, this.api, this.scanQr, this.store});
   final Future<QrCredentials?> Function(BuildContext)? scanQr;
   final ApiClient? api;
+
+  /// Queue for location samples; the device database when null.
+  final PingStore? store;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -25,9 +30,13 @@ class _LoginPageState extends State<LoginPage> {
   String? _error;
   AuthSession? _session;
   TripTracker? _tracker;
+  late final Future<PingStore> _store;
   @override
   void initState() {
     super.initState();
+    _store = widget.store != null
+        ? Future.value(widget.store!)
+        : openPingStore();
     try {
       _api = widget.api ?? ApiClient();
     } catch (_) {
@@ -77,11 +86,18 @@ class _LoginPageState extends State<LoginPage> {
     });
     try {
       final session = await login();
+      final store = await _store;
       if (!mounted) return;
       _password.clear();
       setState(() {
         _session = session;
-        _tracker = TripTracker(api: _api!, token: session.token);
+        _tracker = TripTracker(
+          api: _api!,
+          token: session.token,
+          userId: session.userId,
+          store: store,
+          watch: backgroundTrackingSupported ? backgroundLocationUpdates : null,
+        );
       });
     } on LoginException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -103,6 +119,7 @@ class _LoginPageState extends State<LoginPage> {
     _username.dispose();
     _password.dispose();
     if (widget.api == null) _api?.close();
+    if (widget.store == null) _store.then((store) => store.close());
     super.dispose();
   }
 

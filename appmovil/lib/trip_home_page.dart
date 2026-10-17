@@ -102,6 +102,7 @@ class TripHomePage extends StatelessWidget {
                     if (blocked) ...[
                       _SessionExpiredCard(
                         pending: tracker.pendingCount,
+                        persistent: tracker.persistent,
                         onRelogin: onLogout,
                       ),
                       const SizedBox(height: 16),
@@ -128,6 +129,14 @@ class TripHomePage extends StatelessWidget {
                     if (tracker.trip != null) ...[
                       const SizedBox(height: 16),
                       _ActiveTripCard(tracker: tracker),
+                    ] else if (tracker.pendingCount > 0 && !blocked) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'Hay ${tracker.pendingCount} ubicaciones de un viaje anterior '
+                        'guardadas en el teléfono. Se enviarán en cuanto haya conexión.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: BrandColors.muted),
+                      ),
                     ],
                     if (tracker.error != null && !blocked) ...[
                       const SizedBox(height: 16),
@@ -156,10 +165,16 @@ class TripHomePage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    const Text(
-                      'Durante el viaje mantén la app abierta: la ubicación se envía cada 5 segundos.',
+                    Text(
+                      tracker.tracksInBackground
+                          ? 'Puedes usar otras apps o apagar la pantalla: el viaje se sigue registrando cada 5 segundos. '
+                                'No cierres la app desde la lista de apps recientes.'
+                          : 'Durante el viaje mantén la app abierta: la ubicación se envía cada 5 segundos.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: BrandColors.muted),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: BrandColors.muted,
+                      ),
                     ),
                   ],
                 ),
@@ -271,6 +286,8 @@ class _ActiveTripCard extends StatelessWidget {
                     child: Text(
                       tracker.online
                           ? 'Conectado'
+                          : tracker.persistent
+                          ? 'Sin conexión · guardando en el teléfono'
                           : 'Sin conexión · reintentando',
                     ),
                   ),
@@ -284,8 +301,14 @@ class _ActiveTripCard extends StatelessWidget {
               Text('Rechazadas por el servidor: ${tracker.rejectedCount}'),
             if (tracker.droppedCount > 0)
               Text(
-                'Descartadas por falta de espacio: ${tracker.droppedCount}',
+                'Descartadas por falta de espacio o antigüedad: ${tracker.droppedCount}',
                 style: const TextStyle(color: Color(0xffb42318)),
+              ),
+            if (!tracker.persistent)
+              const Text(
+                'Este dispositivo no puede guardar ubicaciones: '
+                'las pendientes se perderán si cierras la app.',
+                style: TextStyle(color: Color(0xffb54708)),
               ),
             if (tracker.notice != null) ...[
               const SizedBox(height: 8),
@@ -319,8 +342,13 @@ class _MessageCard extends StatelessWidget {
 }
 
 class _SessionExpiredCard extends StatelessWidget {
-  const _SessionExpiredCard({required this.pending, required this.onRelogin});
+  const _SessionExpiredCard({
+    required this.pending,
+    required this.persistent,
+    required this.onRelogin,
+  });
   final int pending;
+  final bool persistent;
   final VoidCallback onRelogin;
   @override
   Widget build(BuildContext context) => Card(
@@ -334,10 +362,13 @@ class _SessionExpiredCard extends StatelessWidget {
           Semantics(
             liveRegion: true,
             child: Text(
-              pending > 0
-                  ? 'Tu sesión venció. Hay $pending ubicaciones sin enviar que se perderán al salir. '
-                        'Vuelve a iniciar sesión con el mismo camión para continuar el viaje.'
-                  : 'Tu sesión venció. Vuelve a iniciar sesión con el mismo camión para continuar el viaje.',
+              pending == 0
+                  ? 'Tu sesión venció. Vuelve a iniciar sesión con el mismo camión para continuar el viaje.'
+                  : persistent
+                  ? 'Tu sesión venció. Hay $pending ubicaciones guardadas en el teléfono que se enviarán '
+                        'cuando vuelvas a iniciar sesión. Escanea el QR del mismo camión para continuar el viaje.'
+                  : 'Tu sesión venció. Hay $pending ubicaciones sin enviar que se perderán al salir. '
+                        'Vuelve a iniciar sesión con el mismo camión para continuar el viaje.',
               style: const TextStyle(color: Color(0xffb42318)),
             ),
           ),

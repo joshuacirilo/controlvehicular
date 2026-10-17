@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:control_vehicular/core/api_client.dart';
+import 'package:control_vehicular/core/ping_store.dart';
 import 'package:control_vehicular/core/qr_credentials.dart';
 import 'package:control_vehicular/login_page.dart';
 
@@ -92,6 +93,7 @@ void main() {
       MaterialApp(
         home: LoginPage(
           api: api,
+          store: MemoryPingStore(),
           scanQr: (_) async => const QrCredentials('piloto1', 'clave-123'),
         ),
       ),
@@ -119,7 +121,7 @@ void main() {
           });
           return accepted
               ? http.Response(
-                  '{"mode":"usuario","user":{"name":"Usuario de prueba"},"token":"t"}',
+                  '{"mode":"usuario","user":{"id":"u1","name":"Usuario de prueba"},"token":"t"}',
                   200,
                 )
               : http.Response('{}', 401);
@@ -130,6 +132,7 @@ void main() {
         MaterialApp(
           home: LoginPage(
             api: api,
+            store: MemoryPingStore(),
             scanQr: (_) async =>
                 QrCredentials.parse('Usuario: prueba1\nContraseña: 123'),
           ),
@@ -157,7 +160,11 @@ void main() {
     addTearDown(api.close);
     await tester.pumpWidget(
       MaterialApp(
-        home: LoginPage(api: api, scanQr: (_) async => null),
+        home: LoginPage(
+          api: api,
+          store: MemoryPingStore(),
+          scanQr: (_) async => null,
+        ),
       ),
     );
     await tester.ensureVisible(find.text('Ingresar con QR'));

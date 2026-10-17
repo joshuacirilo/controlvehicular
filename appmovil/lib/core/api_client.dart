@@ -78,11 +78,16 @@ class ApiClient {
     }
     if (data is! Map ||
         data['user'] is! Map ||
+        data['user']['id'] is! String ||
         data['user']['name'] is! String ||
         data['token'] is! String) {
       throw const LoginException('Respuesta del servidor inesperada.');
     }
-    return AuthSession(data['user']['name'] as String, data['token'] as String);
+    return AuthSession(
+      data['user']['id'] as String,
+      data['user']['name'] as String,
+      data['token'] as String,
+    );
   }
 
   /// Starts a trip with the scanned truck QR, required for every trip.
@@ -188,7 +193,8 @@ class ApiClient {
 }
 
 class AuthSession {
-  const AuthSession(this.name, this.token);
+  const AuthSession(this.userId, this.name, this.token);
+  final String userId;
   final String name;
   final String token;
 }
