@@ -1,9 +1,10 @@
 # Traspaso para el siguiente agente: Control Vehicular
 
-Actualizado: **19 de octubre de 2026 (hora de Guatemala)**.
+Actualizado: **20 de octubre de 2026 (hora de Guatemala)**.
 Rama verificada: `jc_geolocalizacion`. HEAD al preparar este traspaso:
-`35a4c2b` (`feat: enhance session management and trip continuity in appmovil`).
-Hay cambios locales modificados y archivos nuevos sin seguimiento de esta conversación.
+`23cc7cf` (`feat: Implement GPS quality validation and permission handling`).
+Antes de editar este traspaso, `git status --short` no mostró cambios. El usuario
+ha hecho commits entre turnos; el agente no los hizo. Esta edición modifica el documento.
 **No asumir un árbol limpio, no sobrescribirlos y no hacer commits por iniciativa propia.**
 El usuario hace sus propios commits. Volver a comprobar `git status --short` y `git log -1`.
 
@@ -14,7 +15,118 @@ histórica contradictoria de las secciones posteriores. El código sigue siendo 
 fuente de verdad. El encargo actual es actualizar este documento para el siguiente
 agente; no hay autorización nueva para desplegar, empaquetar Android o cambiar infraestructura.
 
-### Última decisión del usuario: mapa de rutas
+### Continuación vigente: mapa de Camiones, registros y QR (20/10/2026)
+
+Esta subsección tiene prioridad sobre todo el historial que sigue. El usuario pidió
+actualizar este archivo para que otro agente continúe; no hay otro cambio de producto
+pendiente de ejecutar. Los cambios siguientes ya existen en el código.
+
+**Mapa de rutas en `/camiones` → piloto → viaje → Ampliar mapa:**
+
+- Solo se dibujan marcadores de checkpoints **dudosos**, en naranja, según
+  `hasQuestionableFix` de `administrador/lib/route-quality.ts`. No restituir los
+  marcadores normales ni los números permanentes. Se conservan los popups dudosos.
+- La línea azul sigue conectando **todos** los checkpoints en orden, sin borrar
+  muestras ni cortar la geometría. La política de distancia estimada no cambió.
+- El usuario definió regreso como **recorrer en sentido contrario un tramo por el
+  que ya pasó**, no simplemente acercarse al inicio. Se superponen segmentos
+  **morados discontinuos** para ese regreso estimado.
+- `lib/route-returns.ts::returnSections` compara contra tramos anteriores mediante
+  una cuadrícula espacial: tolerancia 15 m, dirección opuesta de al menos ~150°,
+  coincidencia de al menos 80% de las muestras y longitud de tramo entre 8 y 500 m.
+  Solo usa extremos no dudosos y tiempos crecientes con separación ≤30 s. Estas
+  restricciones son para **clasificar el color**, no para eliminar la línea azul.
+  No es map matching; puede confundir vías cercanas o no reconocer algunos regresos.
+- `components/route-direction-arrows.tsx::RouteDirectionArrows` añade pequeñas
+  flechas hacia el siguiente checkpoint: azules o moradas según el tramo. Se
+  recalculan al mover, ampliar o redimensionar el mapa, mantienen tamaño en píxeles
+  y limitan la densidad (hasta 500 flechas visibles). Un pequeño desplazamiento
+  lateral ayuda a distinguir sentidos opuestos superpuestos. No cambian coordenadas.
+- El usuario pidió más acercamiento dos veces: límite final **zoom 25** tanto en
+  `MapContainer` como en `TileLayer`, con `maxNativeZoom={19}`. Por encima de 19 se
+  amplían los mosaicos existentes; el fondo puede pixelarse, las líneas siguen siendo
+  vectoriales. El `maxZoom:16` de `fitBounds` limita solo el encuadre inicial, no el
+  zoom manual. El mini mapa sigue sin interacción; el ampliado permite zoom y arrastre.
+- Se actualizó la leyenda en `components/driver-trips.tsx`.
+
+**Registro de camiones y pilotos y descarga de QR:**
+
+- El usuario escribió «caminos», pero **aclaró que se refiere a camiones**, no a
+  crear rutas en el mapa. Pidió registrar camiones y pilotos y crear/descargar QR.
+- Implementado en **Control de cuentas (`/cuentas`)**, con selector Camión/Piloto.
+  `/camiones` tiene un enlace «Registrar camión o piloto» hacia esa pantalla.
+- Camión: placa, modelo, contraseña y confirmación. Piloto: nombre, usuario,
+  licencia, teléfono, contraseña y confirmación. Contraseñas entre 8 y 128 caracteres.
+  `lib/registration.ts` centraliza validación, normalización y payload del QR.
+- `components/account-registration.tsx` genera el PNG localmente con `qrcode`
+  antes de enviar el alta; tras éxito muestra el QR y **Descargar PNG**. Tamaño
+  768 px, margen de 4 módulos, corrección M. No usa servicios externos para el QR.
+- Contratos compatibles con Flutter: camión `{placa,password}`, piloto
+  `{username,password}`. Se preservan caracteres especiales de la contraseña.
+- **Límite actual importante:** el PNG solo permanece en memoria de la pantalla.
+  Descargar antes de salir, recargar o crear otro registro. No hay listado de QR
+  guardados, recuperación posterior ni regeneración de credenciales implementada.
+  El PNG contiene credenciales; la UI indica entregarlo solo a quien corresponda.
+- `POST /api/accounts` recibe `{kind:'truck',placa,modelo,password}` o
+  `{kind:'pilot',username,nombre,licencia,telefono,password}`. Usa
+  `handleAdminRequest`: exige administrador activo y mismo origen; responde sin caché.
+  201 `{id,label}`; 400 validación; 409 duplicados; 401 sesión; 403 origen; 503 servicio.
+- `server/accounts/register.ts::registerAccount`: camiones usan `qrCode=TRUCK-<placa>`;
+  pilotos crean `users` y `drivers` **en una transacción** y siempre con rol
+  `conductor`. `drivers.userId` vincula la cuenta. Solo se persiste hash scrypt.
+  El correo interno es `<username>@controlvehicular.local`; su índice único existente
+  protege altas concurrentes del mismo usuario desde este formulario. No se añadió
+  índice de username ni se modificó infraestructura o validadores.
+- `server/db/mongo.ts` ahora exporta `getMongoClient()` además de `getDb()` para
+  compartir el cliente y abrir sesiones de transacción.
+- `/cuentas` ahora comprueba `getAdmin()` en la propia página y redirige sin sesión;
+  antes solo mostraba el título. No se implementaron edición, eliminación ni listas
+  administrativas de cuentas. Dashboard y perfil siguen pendientes.
+- Dependencia nueva: `qrcode`; desarrollo: `@types/qrcode`, `jsqr` (decodificador de
+  pruebas). Se actualizaron `package.json` y **package-lock.json** con npm. El primer
+  intento falló por acceso a la caché global; funcionó con `--cache .next/npm-cache
+  --ignore-scripts`. No cambiar a pnpm por las notas históricas de este documento.
+- Si una petición pierde la respuesta tras guardarse, la UI informa que el registro
+  pudo haberse creado y un nuevo intento puede dar duplicado. No hay clave de
+  idempotencia ni recuperación automática del QR después de recargar.
+- Contrato también documentado en `administrador/server/README.md`, sección Registro.
+
+**Verificaciones y límites de esta continuación:**
+
+- Mapa: 8 pruebas entre `route-returns.test.mjs` y `route-quality.test.mjs` aprobadas.
+  Lint, TypeScript y build pasaron tras regreso/flechas. Los cambios posteriores de
+  zoom pasaron lint y TypeScript; build omitido al detectarse bloqueo de `next dev`.
+- Registro: **11 pruebas nuevas aprobadas**: `registration.test.mjs` (4),
+  `register-account.test.mjs` (4), `registration-auth.test.mjs` (3). Incluyen lectura
+  real del PNG con `jsqr`, contratos Flutter, validación, hash, vínculo usuario/piloto,
+  duplicados, errores de transacción simulada, rol y protección de origen/sesión.
+- Registro: `npm.cmd run lint`, `npx.cmd next typegen` y `npx.cmd tsc --noEmit`
+  correctos. **Build del registro no ejecutado**: existía `.next/dev/lock`.
+  Antes de construir, volver a comprobar servidor y bloqueo; no detener procesos ajenos.
+- **No se verificó visualmente en navegador**, ni se escaneó el QR en teléfono.
+  Las pruebas de persistencia y autorización usan límites externos simulados: no
+  prueban una transacción real en Atlas. La consulta de validadores de Atlas devolvió
+  `MongoServerError` sin detalles; no afirmar que su esquema actual fue comprobado
+  ni atribuir el fallo a una causa concreta. No se crearon registros reales de prueba.
+- No se desplegó, no se generó APK/AAB y no se hizo commit/push por el agente.
+  Las contraseñas visibles en el contexto del IDE nunca deben copiarse al traspaso.
+- Graphify consultado y actualizado para código: última salida 1049 nodos,
+  1675 aristas, 57 comunidades. La actualización semántica de este documento no se
+  ejecutó; leerlo directamente para decisiones actuales.
+
+**Siguiente paso recomendado:** probar manualmente `/cuentas` con una sesión de
+administrador, crear los registros que el usuario necesite, descargar PNG y escanear
+en Flutter. Si falla el alta, revisar el estado HTTP y el esquema/índices accesibles
+sin imprimir secretos ni modificar infraestructura. Comprobar también visualmente
+flechas, regresos y zoom 25. No presentar estas pruebas pendientes como realizadas.
+
+Comando de las pruebas nuevas, desde `administrador/`:
+
+```powershell
+node --test scripts/registration.test.mjs scripts/register-account.test.mjs scripts/registration-auth.test.mjs
+```
+
+### Contexto previo del mapa (19/10/2026; sustituido en lo indicado arriba)
 
 - El módulo `/camiones` muestra camión → piloto → viajes, con mini mapa y mapa ampliado.
 - La línea **conecta todos los checkpoints en orden de captura**, incluidos puntos
@@ -125,7 +237,7 @@ Servidor: `administrador/server/trips/pings.ts`, `service.ts` y archivos del his
   Sigue vigente **no generar APK/AAB ni ejecutar builds/lanzamientos Android** por el agente.
   El usuario ha empaquetado por su cuenta anteriormente; eso no revoca esta restricción.
 
-### Verificaciones realizadas en esta conversación
+### Verificaciones históricas del 19/10/2026
 
 - `flutter analyze`: sin problemas; `flutter test`: **44 pruebas aprobadas**.
   Cubren permisos simulados, restauración/revocación, calidad GPS, espera inicial,
@@ -833,15 +945,19 @@ viajes dicen "Sin viajes"), **10 por página**.
 
 ## 10. Estado de Git
 
-Al actualizar este documento: rama `jc_geolocalizacion`, HEAD `35a4c2b`.
-Existen cambios modificados y archivos nuevos sin seguimiento en `administrador/`,
-`appmovil/` y `documentacion/`. Incluyen mapa, captura por lotes, permisos, calidad,
-pruebas y el procedimiento GPS. El documento de traspaso también queda modificado.
-El agente no hizo commits, push ni despliegues. Revisar `git status --short` antes
- de continuar: el usuario puede hacer cambios o commits entre turnos.
+Al actualizar este documento el 20/10/2026: rama `jc_geolocalizacion`, HEAD `23cc7cf`
+(`feat: Implement GPS quality validation and permission handling`).
+`git status --short` estaba limpio antes de editar este traspaso. El usuario hizo
+commits entre turnos; el agente no hizo commits, push ni despliegues. Esta actualización
+deja modificado `agentecompleto.md`. Revisar `git status --short` y `git log -1` antes
+de continuar: el usuario puede hacer cambios o commits entre turnos.
 `graphify-out/` y artefactos de compilación están ignorados; no confundirlo con
 que no existan localmente. No deshacer cambios ajenos ni añadir secretos al índice.
 ## 11. Pendientes sugeridos (en orden)
+
+Lista histórica: priorizar la continuación vigente del 20/10 al inicio. El alta de
+pilotos y camiones desde `/cuentas` y su QR descargable ya están implementados;
+el script CLI `user:create` sigue sin existir. No duplicar la funcionalidad del panel.
 
 1. **Pendiente histórico, solo si el usuario retoma este tema: decidir la zona horaria** (UTC en la base y conversión al mostrar, frente a
    UTC-6 actual) **antes** de escribir más código que lea fechas. Usar `AskQuestion`.
