@@ -31,6 +31,7 @@ type LocationPing = {
   precision: number | null;
   timestamp: Date;
   receivedAt: Date;
+  qualityFlags?: string[];
 };
 
 export type Result<T> = { ok: true; status: number; body: T } | { ok: false; status: number; message: string };
@@ -126,6 +127,7 @@ async function storePings(trip: Trip, input: PingInput[]) {
         pingId: ping.pingId, tripId: trip._id, truckId: trip.truckId, driverId: trip.driverId,
         coords: { type: 'Point', coordinates }, velocidad, precision: ping.accuracy,
         timestamp: ping.timestamp, receivedAt,
+        qualityFlags: ping.qualityFlags ?? [],
       });
     } catch (error) {
       if (!isDuplicateKey(error)) throw error;

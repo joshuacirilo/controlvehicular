@@ -1,4 +1,7 @@
 import 'package:control_vehicular/core/api_client.dart';
+
+import 'dart:io';
+
 import 'package:control_vehicular/core/ping_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -15,6 +18,46 @@ PingSample _ping(String id, int second) => PingSample(
 
 void main() {
   sqfliteFfiInit();
+  test(
+    'upgrades the existing queue without losing pending locations',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'cv-gps-migration-',
+      );
+      final path = '${directory.path}/queue.db';
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE pending_pings (ping_id TEXT PRIMARY KEY, owner TEXT NOT NULL, trip_id TEXT NOT NULL, latitude REAL NOT NULL, longitude REAL NOT NULL, accuracy REAL NOT NULL, taken_at INTEGER NOT NULL)',
+            );
+          },
+        ),
+      );
+      await legacy.insert('pending_pings', {
+        'ping_id': 'old',
+        'owner': 'u1',
+        'trip_id': 'trip-a',
+        'latitude': 14.6,
+        'longitude': -90.5,
+        'accuracy': 10,
+        'taken_at': _base.millisecondsSinceEpoch,
+      });
+      await legacy.close();
+      final store = await SqlitePingStore.open(databaseFactoryFfi, path);
+      try {
+        final restored = (await store.next('u1', 50))!.pings.single;
+        expect(restored.id, 'old');
+        expect(restored.qualityFlags, isEmpty);
+        expect(restored.latitude, 14.6);
+      } finally {
+        await store.close();
+        await directory.delete(recursive: true);
+      }
+    },
+  );
   final stores = <String, Future<PingStore> Function()>{
     'memoria': () async => MemoryPingStore(),
     'SQLite': () =>
@@ -26,6 +69,23 @@ void main() {
       late PingStore store;
       setUp(() async => store = await open());
       tearDown(() => store.close());
+      test(
+        'preserves quality flags and original coordinates for retries',
+        () async {
+          final sample = PingSample(
+            id: 'flagged',
+            latitude: 14.6,
+            longitude: -90.5,
+            accuracy: 500,
+            timestamp: _base,
+            qualityFlags: ['low_accuracy', 'stale'],
+          );
+          await store.add('u1', 'trip-a', sample);
+          final restored = (await store.next('u1', 50))!.pings.single;
+          expect(restored.qualityFlags, sample.qualityFlags);
+          expect(restored.toJson(), sample.toJson());
+        },
+      );
 
       test(
         'returns the oldest trip first, in the order samples were taken',

@@ -255,11 +255,13 @@ class PingSample {
     required this.longitude,
     required this.accuracy,
     required this.timestamp,
+    this.qualityFlags = const [],
   });
   final String id;
   final double latitude;
   final double longitude;
   final double accuracy;
+  final List<String> qualityFlags;
   final DateTime timestamp;
 
   Map<String, Object> toJson() => {
@@ -268,6 +270,7 @@ class PingSample {
     'longitude': longitude,
     'accuracy': accuracy,
     'timestamp': timestamp.toUtc().toIso8601String(),
+    'qualityFlags': qualityFlags,
   };
 }
 

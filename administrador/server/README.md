@@ -129,6 +129,32 @@ caracteres `[A-Za-z0-9_-]`) debe conservarse al reintentar: el indice unico
   404 viaje inexistente, 409 conflicto, 429 camion bloqueado por intentos fallidos,
   503 base de datos no disponible.
 
+## Registro de camiones y pilotos y descarga de QR
+
+`/cuentas` permite registrar un camión (placa, modelo, contraseña) o un piloto
+(usuario, nombre, licencia, teléfono, contraseña). Cada página comprueba `getAdmin()`.
+Hay un enlace desde `/camiones`. Al guardar se presenta un QR descargable en PNG.
+El PNG se genera localmente en el navegador y se mantiene solo en memoria: descargarlo
+antes de salir o crear otro registro. No se guardan contraseñas recuperables ni imágenes
+QR en Atlas. El QR contiene credenciales y debe entregarse únicamente a su destinatario.
+
+`POST /api/accounts`, cookie de administrador y mismo origen, recibe JSON:
+
+- Camión: `{kind:"truck", placa, modelo, password}`.
+- Piloto: `{kind:"pilot", username, nombre, licencia, telefono, password}`.
+- 201: `{id, label}`; 400: datos inválidos; 409: placa, usuario o licencia duplicados;
+  401: sin sesión; 403: origen no permitido; 503: fallo del servicio.
+
+Las contraseñas usan scrypt. Para pilotos se crean `users` y `drivers` en una transacción;
+el rol siempre es `conductor`. El correo interno es `username@controlvehicular.local`:
+el índice único de correo existente protege altas concurrentes del mismo usuario desde
+este formulario. No se crean índices ni se modifican validadores.
+El QR usa `{placa,password}` o `{username,password}`, compatible con Flutter.
+
+Pruebas: `node --test scripts/registration.test.mjs scripts/register-account.test.mjs`.
+Cubren validación, contratos QR con decodificación de PNG y la lógica de persistencia
+con base simulada; no equivalen a una prueba de escritura contra Atlas.
+
 ## Flota en vivo (panel)
 
 GET /api/trucks/live (cookie `cv_admin`, `Cache-Control: no-store`) devuelve los

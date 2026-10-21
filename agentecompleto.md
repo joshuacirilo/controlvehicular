@@ -1,31 +1,161 @@
 # Traspaso para el siguiente agente: Control Vehicular
 
-Actualizado: 17 de octubre de 2026, 01:45 (hora de Guatemala). Rama: `jc_geolocalizacion`.
-Último commit: `a2213ab` (permiso `INTERNET` en Android). Los cambios de la
-conversación 7 (sección 7.4) están **sin commitear**. El usuario hace sus propios commits.
+Actualizado: **19 de octubre de 2026 (hora de Guatemala)**.
+Rama verificada: `jc_geolocalizacion`. HEAD al preparar este traspaso:
+`35a4c2b` (`feat: enhance session management and trip continuity in appmovil`).
+Hay cambios locales modificados y archivos nuevos sin seguimiento de esta conversación.
+**No asumir un árbol limpio, no sobrescribirlos y no hacer commits por iniciativa propia.**
+El usuario hace sus propios commits. Volver a comprobar `git status --short` y `git log -1`.
 
-Este documento resume siete conversaciones con el mismo usuario:
+## Estado vigente de la última conversación — leer primero
 
-1. Backend de viajes + GPS + app Flutter.
-2. Panel administrador (sidebar, vistas, mapa Leaflet).
-3. API del administrador protegida, login del piloto rehecho, fechas a hora de Guatemala.
-4. Revisión técnica (sección 12), `.pnpm-store` fuera de Git, **mapa con los camiones
-   en vivo** (sección 8.2) e **identidad visual con el ícono de la app** (secciones 8.3 y 7).
-5. La última (solo Flutter, sin tocar el backend): **cola offline de ubicaciones en
-   SQLite** (sección 7.1) y **seguimiento en segundo plano en Android** con servicio
-   en primer plano (sección 7.2).
-6. La más reciente (solo panel Next.js): **revisión senior de este documento** con
-   nuevos riesgos verificados en el código (sección 12), **vista `/camiones`** con
-   capas camión → piloto → rutas paginadas (secciones 6.6 y 8.4) y **mapa ampliado**
-   de cada ruta en una ventana modal.
-7. La más reciente: el usuario ya **empaqueta el APK él mismo** apuntando a Vercel
-   (`https://controlvehicular-owwh.vercel.app/api/`). Se creó el piloto real `prueba1`
-   en Atlas y se hizo la **sesión persistente** (token sin vencimiento revocable),
-   la **restauración del viaje** al reabrir la app y el **GPS con la app cerrada
-   desde recientes** (sección 7.4). Se eliminó el login de prueba local.
+Esta sección recoge las decisiones más recientes y reemplaza cualquier descripción
+histórica contradictoria de las secciones posteriores. El código sigue siendo la
+fuente de verdad. El encargo actual es actualizar este documento para el siguiente
+agente; no hay autorización nueva para desplegar, empaquetar Android o cambiar infraestructura.
 
-Léelo completo antes de actuar. El código es la fuente de verdad: verifica antes de
-afirmar.
+### Última decisión del usuario: mapa de rutas
+
+- El módulo `/camiones` muestra camión → piloto → viajes, con mini mapa y mapa ampliado.
+- La línea **conecta todos los checkpoints en orden de captura**, incluidos puntos
+  imprecisos o con alertas. **No filtrar por 50 m, no cortar por huecos de 30 s y no
+  volver a introducir `routeSegments`**: el usuario pidió retirar ese filtrado.
+- Todos los registros de ubicación se devuelven; se eliminó la reducción a ~200 puntos.
+  El servidor ordena por `{timestamp: 1, _id: 1}`. La recepción por lotes no cambia ese orden.
+- El último pedido fue **quitar los números visibles** de los checkpoints. Ahora son
+  círculos de **14 × 14 px**, sin texto dentro; mantienen colores y ventanas de detalle.
+  El índice desde 0 sigue disponible en el popup, título/alternativa accesible y como
+  referencia del registro, pero no se imprime permanentemente sobre el mapa.
+- `components/route-mini-map.tsx` dibuja una sola `Polyline positions={ruta}` cuando
+  hay al menos dos puntos. Usa OpenStreetMap como fondo. No existe map matching ni
+  ajuste automático a calles; entre muestras son segmentos rectos.
+- Los puntos dudosos siguen en naranja. Sus alertas se muestran, pero **no los excluyen
+  de la línea**. Conectar todos los puntos no garantiza eliminar saltos GPS ni líneas largas.
+- La **distancia estimada** conserva su política separada: excluye lecturas dudosas,
+  interrumpe el cálculo ante huecos y descuenta ruido según precisión. Por ello puede
+  diferir de la longitud de la línea cruda. No cambiar esta política sin una petición.
+- Archivos: `administrador/components/route-mini-map.tsx`, `components/driver-trips.tsx`,
+  `app/globals.css`, `lib/route-quality.ts`, `lib/truck-history.ts`, `server/trucks/history.ts`.
+
+### Problema GPS observado y diagnóstico
+
+El usuario mostró una ruta con saltos mientras viajaba desde la app Android. Se
+consultó Atlas en modo lectura: en el viaje `6ad3e5824d26e2c99ba86f55` había 316
+muestras; 82 reportaban precisión peor que 50 m. El checkpoint 222 reportaba unos
+3.728 m de incertidumbre; el 221 implicaba un salto de unos 2,2 km en 7,35 s.
+Estos números son una observación de esa consulta, no un inventario actualizado.
+
+La app ya solicitaba `LocationAccuracy.high`. No se confirmó si la degradación
+provenía de permisos, recepción, proveedor de ubicación o condiciones del teléfono.
+No afirmar que se reparó físicamente el GPS ni que aumentar frecuencia o agrupar
+peticiones corrige la precisión. El usuario preguntó por ajuste a calles: se explicó
+map matching, pero **no se implementó ni se contrató un servicio externo**.
+
+### Captura local y envío por lotes
+
+- `appmovil/lib/core/trip_tracker.dart`: `interval = 5 s`, `uploadInterval = 60 s`.
+  Hay temporizadores independientes: una petición lenta no bloquea la siguiente captura.
+- Se utiliza la cola SQLite existente; es almacenamiento persistente, no RAM.
+  Aproximadamente 12 muestras por minuto si el dispositivo entrega una cada 5 s.
+- Lotes de hasta 50; conservar `pingId`, timestamp de captura y coordenadas al reintentar.
+  El servidor registra cada muestra individualmente, no una ubicación resumida del minuto.
+- El primer punto se envía junto con el inicio del viaje. Al finalizar se intenta
+  entregar la cola inmediatamente, incluyendo escrituras del stream ya iniciadas.
+  Si quedan pendientes, el viaje no se da por terminado localmente.
+- La restauración puede enviar pendientes sin esperar al minuto. Se conserva el
+  backoff de reintentos; ahora sus ciclos son los del temporizador de envío.
+- El panel puede llevar hasta un minuto de retraso normal, más red/backoff. Su polling
+  cada 5 s no significa que reciba coordenadas nuevas cada 5 s.
+- La UI muestra las frecuencias. No se modificaron las reglas previas de descarte
+  por antigüedad, capacidad o rechazos permanentes; revisar antes de prometer cero pérdidas.
+
+### Permisos y calidad GPS implementados
+
+1. **Acceso:** después de autenticarse y al restaurar sesión, `PilotPermissionGate`
+   bloquea el módulo hasta comprobar ubicación precisa, servicio de ubicación activo,
+   cámara QR y notificaciones en Android. Incluye reintento y accesos a ajustes.
+   Al volver a la app nativa se comprueban otra vez; si falta acceso se detiene el tracker
+   y se vuelve al bloqueo conservando la sesión y el viaje del servidor.
+2. **Android:** canal `control_vehicular/permissions` en `MainActivity.kt`; declara
+   `CAMERA` y `POST_NOTIFICATIONS`. Solicita permisos runtime y comprueba ubicación
+   precisa y notificaciones habilitadas. Mantiene el motor Flutter retenido y el servicio
+   de seguimiento existente. No se añadió `permission_handler` ni permiso de almacenamiento.
+3. **Web:** implementación condicional que verifica geolocalización y cámara, liberando
+   la cámara al terminar. No simula permisos exclusivos de Android ni garantiza fondo.
+4. **Inicio del viaje:** `waitForStartPosition` espera como máximo 30 s una muestra
+   no simulada, con antigüedad entre 0 y 10 s y precisión reportada >0 y ≤30 m.
+   Si no se consigue, muestra error y no llama a crear el viaje. La UI dice
+   “Buscando señal GPS…”. `currentLocation` comprueba también ubicación precisa nativa.
+5. **Calidad visual:** buena hasta 20 m, regular hasta 50 m, baja si es >50 m,
+   inválida o desconocida. Una lectura antigua se muestra como señal baja.
+6. **Alertas:** `low_accuracy`, `stale`, `mocked`, `out_of_order`, `gap` (>30 s), `jump`.
+   Para salto se compara distancia/tiempo descontando ambos radios de incertidumbre;
+   se marca si supera 160 km/h con intervalo de hasta 30 s y precisiones utilizables.
+   Son umbrales iniciales y diagnósticos del dispositivo, no prueba de fraude ni garantía de exactitud.
+7. **Persistencia:** `PingSample.qualityFlags` → SQLite versión 2, columna
+   `quality_flags TEXT NOT NULL DEFAULT '[]'`. La migración conserva la cola anterior.
+   La API valida una lista acotada de etiquetas conocidas y las conserva en
+   `locationPings.qualityFlags`. Clientes antiguos sin etiquetas siguen siendo válidos.
+   No se modificaron coordenadas originales ni validadores de Atlas. La lectura del
+   validador de `locationPings` mostró que admite propiedades adicionales.
+8. **Panel:** la respuesta de historial incluye `checkpoints` con precisión, timestamp
+   y alertas. Los popups muestran esos datos; las alertas afectan al color, no al trazado.
+
+Archivos de acceso: `appmovil/lib/core/access_permissions.dart`,
+`access_permissions_stub.dart`, `access_permissions_web.dart`,
+`appmovil/lib/pilot_permission_gate.dart`, `lib/login_page.dart`,
+`android/app/src/main/kotlin/com/example/control_vehicular/MainActivity.kt`, manifiesto.
+Calidad: `appmovil/lib/core/gps_quality.dart`, `location_service.dart`, `trip_tracker.dart`,
+`ping_store.dart`, `api_client.dart`, `lib/trip_home_page.dart`.
+Servidor: `administrador/server/trips/pings.ts`, `service.ts` y archivos del historial.
+
+### Diagnóstico y prueba pendiente en teléfono
+
+- En un viaje activo: **Diagnóstico GPS → Copiar diagnóstico**. Incluye `pingId`,
+  captura/observación, precisión, intervalo, estado de la app y alertas.
+- Conserva en memoria las últimas 360 muestras de esta instancia. Se reinicia al iniciar
+  otro viaje o reiniciar el proceso; copiar antes de finalizar para disponer del botón.
+  Las muestras y alertas pendientes sí persisten en SQLite hasta su entrega.
+- `appState` indica visible/segundo plano; **no mide directamente si la pantalla está encendida**.
+- Procedimiento completo: [documentacion/PRUEBA_GPS.md](documentacion/PRUEBA_GPS.md).
+  Comparar el mismo recorrido con pantalla encendida y bloqueada; medir precisión,
+  intervalos, huecos y recuperación de red. No inventar resultados de campo.
+- **Pendientes:** compilación/verificación del código Kotlin y diálogos Android,
+  permisos reales y continuidad con pantalla apagada en un teléfono.
+  Sigue vigente **no generar APK/AAB ni ejecutar builds/lanzamientos Android** por el agente.
+  El usuario ha empaquetado por su cuenta anteriormente; eso no revoca esta restricción.
+
+### Verificaciones realizadas en esta conversación
+
+- `flutter analyze`: sin problemas; `flutter test`: **44 pruebas aprobadas**.
+  Cubren permisos simulados, restauración/revocación, calidad GPS, espera inicial,
+  migración SQLite, conservación de alertas, lotes, reintentos y captura con red lenta.
+- Administrador: `npm.cmd run lint` y `npm.cmd run build` correctos, también después
+  del último cambio para quitar números visibles.
+- Pruebas actuales: `node --test scripts/route-quality.test.mjs scripts/gps-quality.test.mjs`
+  desde `administrador`: **4 pruebas aprobadas**. Hubo 7 antes de retirar el filtrado;
+  las pruebas de cortes se retiraron al cambiar explícitamente ese comportamiento.
+- No declarar pruebas visuales de navegador, compilación Kotlin, APK ni pruebas de
+  campo como ejecutadas. No se desplegó en esta conversación.
+- Graphify consultado y actualizado para código; última salida observada: 991 nodos,
+  1548 aristas, 53 comunidades. El índice semántico de documentos no se refrescó:
+  **leer directamente este archivo para el traspaso vigente**.
+
+### Cómo continuar
+
+1. Consultar Graphify sobre la próxima tarea y revisar instrucciones de ambos módulos.
+2. Preservar cambios locales. Aplicar las decisiones finales del mapa descritas arriba.
+3. Revisar el diagnóstico de un teléfono real cuando el usuario pueda probar una versión
+   que incluya los cambios. Las pruebas de escritorio no confirman mejoras de recepción GPS.
+4. `administrador/README.md` fue analizado, **no reescrito**: sigue describiendo una
+   plantilla sin backend/variables pese a existir API, MongoDB y autenticación.
+   Los `AGENTS.md` también contienen descripciones históricas; contrastar con código.
+5. Usar `npm ci`/`package-lock.json` según el README de instalación; no cambiar de
+   gestor ni regenerar lockfiles como parte de esta tarea. No leer ni copiar secretos.
+
+Las secciones siguientes conservan el contexto de las conversaciones anteriores
+(backend, autenticación, fechas, sesiones, flota, historial y riesgos). Sus resultados
+históricos no sustituyen las verificaciones actuales enumeradas arriba.
 
 ## 0. Primer paso obligatorio: contexto con Graphify
 
@@ -53,7 +183,7 @@ archivos completos antes de consultar el grafo.**
 3. Lee solo lo que el grafo señale. No cargues `graph.json` ni todo `GRAPH_REPORT.md`.
    Si algo no aparece, haz una búsqueda puntual: su ausencia no prueba que no exista.
 4. Tras cada conjunto de cambios de código: `.\graphify.cmd update .` desde la raíz
-   (~820 nodos tras la última actualización). Puede imprimir un aviso de
+   (consultar el recuento real de la última ejecución). Puede imprimir un aviso de
    "community set changed": es informativo. Si el número de nodos se dispara, revisa
    si indexó código generado (pasó con `appmovil/web/sqflite_sw.js`: +648 nodos) y
    agrégalo a `.graphifyignore`.
@@ -65,8 +195,8 @@ archivos completos antes de consultar el grafo.**
 ## 1. Qué es el proyecto
 
 Control de flota. El **piloto** inicia sesión en la app **Flutter** (`appmovil/`) con
-su usuario, escanea el QR del camión para iniciar un viaje y la app envía su GPS cada
-5 s (lo guarda en SQLite si no hay conexión y en Android sigue en segundo plano).
+su usuario, escanea el QR del camión para iniciar un viaje, captura GPS cada 5 s
+y envía lotes cada 60 s usando SQLite como cola persistente.
 Los administradores usan un panel **Next.js 16 full-stack** (`administrador/`)
 que también expone la API HTTP que consume Flutter, y ven los camiones moverse en el
 mapa. Base de datos: **MongoDB Atlas** (`trucks_db`), driver nativo `mongodb`
@@ -346,11 +476,12 @@ iniciar cada viaje**.
     reciente al más antiguo, 5 por página (`TRIPS_PER_PAGE`). Por viaje lee **todos**
     sus pings (`coords`, `precision`) ordenados por tiempo, calcula `distanciaKm`
     (solo suma desplazamientos mayores que la precisión, con un punto ancla; misma
-    idea que `speedKmh`) y reduce la ruta a ~200 coordenadas `[lat, lng]`.
+    idea que `speedKmh`). Actualmente devuelve todas las coordenadas `[lat, lng]` y
+    metadatos `checkpoints`; la distancia excluye muestras dudosas (ver estado vigente).
 - `GET /api/trucks/:truckId/drivers/:driverId/trips?page=N`: `handleAdminRequest`
   primero (401 sin sesión), luego 404 si un id no es ObjectId y 400 si `page` no es un
   entero ≥ 1. Respuesta `{page, totalPages, total, trips:[{tripId, estado, inicio,
-  fin|null, puntos, distanciaKm, ruta}]}` con fechas `-06:00`.
+  fin|null, puntos, distanciaKm, ruta, checkpoints}]}` con fechas `-06:00`.
 - Tipos y constantes compartidos en `lib/truck-history.ts`. `distanceMeters` ahora se
   exporta desde `server/trips/pings.ts`. Documentado en `server/README.md`.
 - Coste: lee todos los pings de cada viaje mostrado. Si hay viajes de días, guardar un
@@ -392,10 +523,10 @@ usuario tenía `next dev` activo y no se ejecutó build ni se vio en navegador.
   `backgroundTrackingSupported` (solo Android nativo), `backgroundLocationUpdates()`
   (sección 7.2) y `locationErrorFrom(error)` (errores del flujo → `LocationException`).
 - `lib/core/trip_tracker.dart` (`TripTracker(api, token, userId, store?, locate?,
-  watch?, interval=5s, maxQueue=120000)`): `start(TruckCredentials)` toma la posición
-  con `currentLocation` (así se pide el permiso), llama a `startTrip` con el primer
+  watch?, interval=5s, uploadInterval=60s, maxQueue=120000)`): `start(TruckCredentials)` toma la posición
+  con `waitForStartPosition(_locate)` (criterios de calidad del estado vigente), llama a `startTrip` con el primer
   ping y arranca el temporizador. Con `watch` (Android) las muestras salen del flujo
-  continuo y el temporizador solo envía; sin `watch` (web y pruebas) el temporizador
+  continuo y hay un temporizador independiente de envío cada 60 s; sin `watch` (web y pruebas) el temporizador
   consulta `locate` cada 5 s. Cada muestra se guarda en el `PingStore` **antes** de
   enviarse (sección 7.1). Lotes de 50 del viaje más antiguo; reintento con espera
   creciente. Respuestas: aceptados/rechazados se borran del almacén; 400 descarta el
@@ -458,9 +589,9 @@ Pedido del usuario: "si la app se queda sin internet que guarde el historial con
 SQLite y luego con internet lo mande". Decisiones tomadas con `AskQuestion`:
 SQLite **también en web**; la copia local **se borra** cuando el servidor la confirma
 (el historial oficial vive en Atlas); al volver a iniciar sesión las pendientes **se
-suben solas** y para seguir el viaje el piloto **vuelve a escanear el QR** (el
-servidor reanuda el mismo viaje con `resumed:true`). No se restaura la pantalla del
-viaje automáticamente.
+suben solas**. La decisión inicial de volver a escanear fue reemplazada:
+la sesión y el viaje activo se restauran automáticamente (sección 7.4), ahora tras
+pasar el control de permisos del piloto.
 
 - `lib/core/ping_store.dart`: interfaz `PingStore` (`persistent`, `add(owner, tripId,
   ping)`, `next(owner, limit)` → `PendingBatch(tripId, pings)` del viaje con la muestra
@@ -469,7 +600,7 @@ viaje automáticamente.
   sube las ajenas.
   - `SqlitePingStore.open(factory, path)`: base `control_vehicular.db`, tabla
     `pending_pings(ping_id PK, owner, trip_id, latitude, longitude, accuracy,
-    taken_at INTEGER ms UTC)` + índice `(owner, taken_at)`. Inserción con
+    taken_at INTEGER ms UTC, quality_flags TEXT) (versión 2) + índice `(owner, taken_at)`. Inserción con
     `ConflictAlgorithm.ignore` (idempotente por `pingId`).
   - `MemoryPingStore`: pruebas y respaldo (`persistent = false`).
   - `openPingStore()`: abre SQLite con la fábrica de la plataforma y, si falla, usa
@@ -490,7 +621,7 @@ viaje automáticamente.
   Offline, iniciar sesión con `prueba1` y comprobar que suben (mapa / Atlas). Si la
   consola muestra "No se pudo abrir la base local de ubicaciones", sospechar del wasm.
 - Sigue haciendo falta internet para login, iniciar viaje (validar QR) y terminarlo.
-  El token no se persiste: tras cerrar la app hay que iniciar sesión para subir.
+  La sesión se persiste en almacenamiento seguro y el viaje se restaura (sección 7.4).
 
 ### 7.2 Seguimiento en segundo plano (Android)
 
@@ -521,9 +652,8 @@ funcionando en segundo plano en Android.
   `--dart-define=API_BASE_URL=http://<IP-de-la-PC>:3000/api/`, iniciar viaje, salir a
   otra app o apagar la pantalla y ver en `/mapa` que el camión sigue moviéndose.
 - Límites conocidos: cerrar la app desde recientes ya no detiene el seguimiento
-  (sección 7.4), salvo que el fabricante mate el proceso. En Android 13+ sin permiso de notificaciones el servicio funciona pero la
-  notificación no se ve (pedirlo requiere p. ej. `permission_handler`; se ofreció y
-  el usuario no respondió). Fabricantes con ahorro agresivo (Xiaomi, Huawei,
+  (sección 7.4), salvo que el fabricante mate el proceso. El acceso del piloto ahora exige notificaciones habilitadas en Android; se implementó
+  con un canal nativo en `MainActivity.kt`, sin añadir `permission_handler`. Fabricantes con ahorro agresivo (Xiaomi, Huawei,
   Samsung): configurar Batería → "Sin restricciones". En web no hay segundo plano.
 
 ### 7.4 Sesión persistente y viaje que sobrevive al cierre (conversación 7)
@@ -654,7 +784,8 @@ viajes dicen "Sin viajes"), **10 por página**.
   (`hrefFor`, usable desde Server Components) o botones (`onChange`).
 - `components/route-mini-map.tsx`: Leaflet cargado con `dynamic(..., {ssr:false})`.
   Sin interacción por defecto; con `interactive` permite zoom y arrastre. Polilínea
-  azul, punto de inicio turquesa y de fin azul marino. `FitWhenSized` usa un
+  azul por todos los checkpoints; puntos de 14 px sin números visibles, inicio
+  turquesa y fin azul marino, o naranja si la lectura es dudosa. `FitWhenSized` usa un
   `ResizeObserver` para reencuadrar la primera vez que el contenedor tiene tamaño real
   (Leaflet se crea con tamaño 0 dentro de un `<dialog>` aún cerrado).
 - **Mapa ampliado**: botón "Ampliar" sobre cada mini mapa que abre `RouteMapDialog`,
@@ -677,18 +808,17 @@ viajes dicen "Sin viajes"), **10 por página**.
 6. Fechas de viajes y pings en **hora de Guatemala (UTC-6)** en la base.
 7. Mapa con Leaflet + OpenStreetMap, limitado a Guatemala; actualización por consulta
    periódica cada 5 s (decisión técnica del agente, el usuario no pidió otra).
-8. `administrador/README.md` queda sin corregir por ahora. Hallazgos: `npm ci` falla
-   por lockfile desincronizado; dice que no hay BD/API/variables (falso); no advierte
-   que `npm run start` desactiva el login de prueba; no enlaza `server/README.md`;
-   falta nota de IP local para Flutter en teléfono; sin `engines`/`packageManager`.
+8. `administrador/README.md` fue revisado, no corregido: describe una plantilla sin
+   base de datos/API/variables pese a existir esas funciones. Falta explicar la
+   configuración y primer acceso y enlazar `server/README.md`. No se ejecutó
+   `npm ci` en esta conversación; no afirmar que falla basándose en notas antiguas.
 9. QR con contraseñas en texto plano aceptado para la demo (riesgo señalado).
 10. Identidad visual a partir del ícono que dio el usuario (coche + velocímetro +
     escudo, azules y celeste), aplicada a la app y al panel.
 11. Ubicaciones sin conexión en **SQLite** (también en web con
     `sqflite_common_ffi_web`); se borran del teléfono al confirmarlas el servidor.
-12. Pendientes de una sesión anterior se suben solas al iniciar sesión el mismo
-    piloto; para continuar el viaje se vuelve a escanear el QR (sin restauración
-    automática de la pantalla del viaje).
+12. Las pendientes se suben al restaurar la sesión del mismo piloto. El viaje activo
+    se recupera sin escanear QR de nuevo, tras el control de permisos.
 13. Segundo plano en Android con servicio en primer plano de geolocator y
     notificación fija; sin `ACCESS_BACKGROUND_LOCATION` (decisión técnica del agente).
 14. Vista `/camiones` en capas (camión → piloto → rutas), con mini mapa en cada ruta,
@@ -703,37 +833,28 @@ viajes dicen "Sin viajes"), **10 por página**.
 
 ## 10. Estado de Git
 
-Rama `jc_geolocalizacion`. Commits recientes del usuario:
-
-- `c5aaf6d` vista `/camiones`, API de rutas por piloto, mapa ampliado y la versión
-  anterior de este documento.
-- `4fe5972` cola offline SQLite + segundo plano Android (incluye `web/sqlite3.wasm`,
-  `web/sqflite_sw.js`, `.graphifyignore` y este documento en su versión anterior).
-- `30cfafd` marca e identidad visual.
-- `1bcf263` flota en vivo en el mapa.
-- `26777cf`, `5d8d088` autenticación del panel, login del piloto, hora de Guatemala.
-
-Árbol limpio salvo esta versión de `agentecompleto.md` (pendiente de que el usuario
-la commitee). `.pnpm-store/` salió del índice (`git rm -r --cached`) y está en
-`.gitignore`. `graphify-out/`, `.next/`, `.dart_tool/` y `build/` están ignorados.
-Restos locales fuera de Git: la carpeta vacía `administrador/app/api/auth/truck-login/`.
-
+Al actualizar este documento: rama `jc_geolocalizacion`, HEAD `35a4c2b`.
+Existen cambios modificados y archivos nuevos sin seguimiento en `administrador/`,
+`appmovil/` y `documentacion/`. Incluyen mapa, captura por lotes, permisos, calidad,
+pruebas y el procedimiento GPS. El documento de traspaso también queda modificado.
+El agente no hizo commits, push ni despliegues. Revisar `git status --short` antes
+ de continuar: el usuario puede hacer cambios o commits entre turnos.
+`graphify-out/` y artefactos de compilación están ignorados; no confundirlo con
+que no existan localmente. No deshacer cambios ajenos ni añadir secretos al índice.
 ## 11. Pendientes sugeridos (en orden)
 
-1. **Decidir la zona horaria** (UTC en la base y conversión al mostrar, frente a
+1. **Pendiente histórico, solo si el usuario retoma este tema: decidir la zona horaria** (UTC en la base y conversión al mostrar, frente a
    UTC-6 actual) **antes** de escribir más código que lea fechas. Usar `AskQuestion`.
-   Hoy migrar es barato (4 viajes de prueba). Lectores de fechas: `service.ts`,
+   El recuento histórico era de 4 viajes de prueba; verificar datos actuales antes de migrar. Lectores de fechas: `service.ts`,
    `trucks/live.ts`, `trucks/history.ts` (todos vía `server/time.ts`).
-2. **Pruebas del backend**: no existe ninguna ni script `test` en `package.json`.
+2. **Pruebas del backend**: hay pruebas node:test de parseo GPS y calidad; falta cubrir casos de negocio.
    Cubrir al menos `startTrip` (concurrencia), `storePings` (idempotencia, cierre,
-   `before_trip`), `server/time.ts`, `checkCredentials` y `routeSummary`. Elegir el
-   runner con el usuario (p. ej. `node:test` sin dependencias o Vitest).
+   `before_trip`), `server/time.ts`, `checkCredentials` y `routeSummary`. Usar el runner existente `node:test` cuando corresponda.
 3. **Cola atascada por un lote venenoso** (sección 12): convertir en el servidor el
    error de validación de Mongo (código 121) en `rejected` por ping, y en Flutter
    aislar un lote que falle con 5xx de forma repetida.
 4. **Crear pilotos reales**: script `user:create` que inserte en `users`
-   (`rol:'conductor'`, hash scrypt) y vincule `drivers.userId`. Hoy solo entra
-   `prueba1` y solo en desarrollo local.
+   (`rol:'conductor'`, hash scrypt) y vincule `drivers.userId`. El inventario de usuarios es histórico; comprobarlo si se necesita.
 5. **Limitar intentos por IP** en ambos logins (hoy cualquiera puede bloquear `admin1`
    o un piloto con 5 intentos cada 15 min) y ejecutar scrypt también con la cuenta
    bloqueada.
@@ -744,7 +865,7 @@ Restos locales fuera de Git: la carpeta vacía `administrador/app/api/auth/truck
 8. **Verificar en dispositivo y navegador**: cola SQLite en Chrome (posible desajuste
    wasm 3.6.0 / Dart `sqlite3` 3.5.2), segundo plano en un Android real (lo prueba el
    usuario con `flutter run`; el agente no lanza Android) y el **mapa ampliado** de
-   `/camiones` (no se vio en navegador ni pasó por build).
+   `/camiones` (build correcto; sigue pendiente la comprobación visual).
 9. Cola persistente: **hecha** (sección 7.1). Restaurar el viaje al reabrir: **hecho**
    (sección 7.4).
 10. Tiempo real con menos latencia (SSE/WebSocket) si se exige RNF01 de 3-5 s.
@@ -753,12 +874,12 @@ Restos locales fuera de Git: la carpeta vacía `administrador/app/api/auth/truck
     filtros por fecha (RF13), ruta planeada (RF11) y resumen guardado al cerrar el
     viaje para no leer todos los pings. Contenido de dashboard, cuentas (CRUD de
     camiones/pilotos) y perfil.
-13. Segundo plano Android: **hecho** (sección 7.2). Opcional: pedir permiso de
-    notificaciones (Android 13+) y seguir tras cerrar la app desde recientes. iOS
-    sigue sin carpeta `ios/` (`NSLocationWhenInUseUsageDescription`, modos de fondo).
-14. Un solo gestor de paquetes (pnpm) y corregir `administrador/README.md`
-    (**pedir confirmación**). **Reescribir los `AGENTS.md` de módulo** (Cursor los
-    inyecta como reglas y describen un proyecto que ya no existe).
+13. Segundo plano Android implementado; permisos de notificaciones ya añadidos.
+    Falta validarlo en teléfono real conforme a `documentacion/PRUEBA_GPS.md`.
+    iOS sigue pendiente. Mantener la prohibición de builds/lanzamientos Android.
+14. Actualizar el README de instalación y descripciones históricas de los AGENTS de
+    módulo si el usuario lo solicita. La instalación actual usa npm/package-lock;
+    no adoptar pnpm ni regenerar bloqueos por iniciativa propia.
 15. Limpieza menor: borrar la carpeta vacía `truck-login/` y los SVG de plantilla de
     `public/` (pedir confirmación).
 16. ~~Eliminar el login de prueba~~: hecho (conversación 7). Queda el piloto real
@@ -819,8 +940,7 @@ Hallazgos anteriores:
 - Los QR llevan contraseñas en texto plano: quien vea el QR del camión obtiene su
   clave. Protegerlo físicamente y rotar la clave si se expone.
 - Pings pendientes: ya **no** se pierden al cerrar/recargar (SQLite, sección 7.1),
-  salvo si el almacén cae a memoria. El token no se persiste: hay que volver a
-  iniciar sesión para subirlos. Las pendientes quedan en el teléfono sin cifrar
+  salvo si el almacén cae a memoria. La sesión se persiste y el viaje se restaura automáticamente tras comprobar permisos. Las pendientes quedan en el teléfono sin cifrar
   (coordenadas del piloto).
 - En web, pestaña en segundo plano frena el muestreo; con `http://` + IP local el
   navegador bloquea la geolocalización (hace falta `localhost` o HTTPS). En Android
@@ -849,7 +969,7 @@ npm.cmd run dev        # http://localhost:3000 (panel: admin1; app: prueba1 / 12
 cd ..\appmovil
 dart format lib test
 flutter analyze
-flutter test           # 30 pruebas
+flutter test           # última ejecución: 44 pruebas
 flutter build web --dart-define=API_BASE_URL=http://localhost:3000/api/   # permitido; APK no
 # Solo si se actualiza sqlite3/sqflite_common_ffi_web:
 # dart run sqflite_common_ffi_web:setup --force

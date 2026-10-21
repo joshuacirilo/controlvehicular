@@ -6,10 +6,8 @@ import {
 import { getDb } from '@/server/db/mongo';
 import { formatGuatemala } from '@/server/time';
 import { distanceMeters } from '@/server/trips/pings';
+import { hasUsableAccuracy, MAX_ROUTE_GAP_MS } from '@/lib/route-quality';
 import type { Result } from '@/server/trips/service';
-
-/** Enough points to draw a trip on a small map without sending every 5-second sample. */
-const MAX_ROUTE_POINTS = 200;
 
 type TruckRow = {
   _id: ObjectId;
@@ -21,7 +19,7 @@ type TruckRow = {
 
 type TripRow = { _id: ObjectId; estado: 'activo' | 'finalizado'; inicio: Date; fin: Date | null };
 
-type PingRow = { coords: { coordinates: [number, number] }; precision?: number | null };
+type PingRow = { coords: { coordinates: [number, number] }; precision?: number | null; timestamp: Date; qualityFlags?: string[] };
 
 const pageCount = (total: number, size: number) => Math.max(1, Math.ceil(total / size));
 const clampPage = (page: number, totalPages: number) => Math.min(Math.max(1, page), totalPages);
@@ -89,7 +87,15 @@ export async function truckHistoryPage(requestedPage: number): Promise<TruckHist
 function routeSummary(pings: PingRow[]) {
   let meters = 0;
   let anchor: PingRow | undefined;
+  let previous: PingRow | undefined;
   for (const ping of pings) {
+    if (!hasUsableAccuracy(ping.precision) || ping.qualityFlags?.some(flag => ['stale', 'mocked', 'out_of_order', 'jump'].includes(flag))) {
+      anchor = previous = undefined;
+      continue;
+    }
+    if (previous && (ping.timestamp.getTime() <= previous.timestamp.getTime() ||
+      ping.timestamp.getTime() - previous.timestamp.getTime() > MAX_ROUTE_GAP_MS)) anchor = undefined;
+    previous = ping;
     if (!anchor) {
       anchor = ping;
       continue;
@@ -100,14 +106,14 @@ function routeSummary(pings: PingRow[]) {
       anchor = ping;
     }
   }
-  const every = Math.ceil(pings.length / MAX_ROUTE_POINTS) || 1;
+  // Keep every fix in chronological order: its array index is its checkpoint number.
   const ruta = pings
-    .filter((_, index) => index % every === 0 || index === pings.length - 1)
     .map(({ coords: { coordinates: [lng, lat] } }): [number, number] => [lat, lng]);
-  return { distanciaKm: Math.round(meters / 100) / 10, ruta };
+  const checkpoints = pings.map(ping => ({ precision: ping.precision ?? null, timestamp: formatGuatemala(ping.timestamp), qualityFlags: ping.qualityFlags ?? [] }));
+  return { distanciaKm: Math.round(meters / 100) / 10, ruta, checkpoints };
 }
 
-/** Trips of one driver with one truck, newest first, with each trip's distance and reduced trace. */
+/** Trips of one driver with one truck, newest first, with every checkpoint in chronological order. */
 export async function driverTrips(
   truckId: ObjectId,
   driverId: ObjectId,
@@ -127,7 +133,7 @@ export async function driverTrips(
     .toArray();
 
   const result: TripRoute[] = await Promise.all(rows.map(async trip => {
-    const tripPings = await pings.find({ tripId: trip._id }, { projection: { _id: 0, coords: 1, precision: 1 } })
+    const tripPings = await pings.find({ tripId: trip._id }, { projection: { _id: 0, coords: 1, precision: 1, timestamp: 1, qualityFlags: 1 } })
       .sort({ timestamp: 1, _id: 1 })
       .toArray();
     return {

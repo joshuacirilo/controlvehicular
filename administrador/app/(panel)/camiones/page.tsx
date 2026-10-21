@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { DriverTrips } from '@/components/driver-trips';
 import { TruckIcon } from '@/components/icons';
@@ -19,6 +20,7 @@ export default async function CamionesPage({ searchParams }: PageProps<'/camione
     <header className="trucks-header">
       <h1 className="panel-title">Camiones</h1>
       <p className="layer-note">{total} {total === 1 ? 'camión registrado' : 'camiones registrados'}</p>
+      <Link href="/cuentas" className="account-create-link">Registrar camión o piloto</Link>
     </header>
     {trucks.length === 0 && <p className="layer-note">No hay camiones registrados.</p>}
     {trucks.map(truck => <section key={truck.truckId} className="truck-layer" aria-labelledby={`truck-${truck.truckId}`}>

@@ -93,6 +93,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: LoginPage(
+          checkPermissions: (_) async => [],
           api: api,
           store: MemoryPingStore(),
           sessionStore: MemorySessionStore(),
@@ -137,6 +138,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: LoginPage(
+            checkPermissions: (_) async => [],
             api: api,
             store: MemoryPingStore(),
             sessionStore: MemorySessionStore(),
@@ -169,6 +171,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: LoginPage(
+          checkPermissions: (_) async => [],
           api: api,
           store: MemoryPingStore(),
           sessionStore: MemorySessionStore(),

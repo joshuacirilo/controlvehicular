@@ -11,6 +11,48 @@ import 'package:control_vehicular/core/session_store.dart';
 import 'package:control_vehicular/main.dart';
 
 void main() {
+  testWidgets(
+    'Saved sessions cannot bypass permissions and revocation blocks access again',
+    (tester) async {
+      var missing = ['Permitir ubicación precisa.'];
+      var activeRequests = 0;
+      final api = ApiClient(
+        client: MockClient((request) async {
+          activeRequests++;
+          return http.Response('{"trip":null}', 200);
+        }),
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LoginPage(
+            api: api,
+            store: MemoryPingStore(),
+            sessionStore: MemorySessionStore(
+              session: const AuthSession('u1', 'Piloto', 'token-1'),
+            ),
+            checkPermissions: (_) async => missing,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Permisos del piloto'), findsOneWidget);
+      expect(activeRequests, 0);
+      missing = [];
+      await tester.tap(find.text('Verificar permisos'));
+      await tester.pumpAndSettle();
+      expect(find.text('Hola, Piloto'), findsOneWidget);
+      expect(activeRequests, 1);
+      missing = ['Permitir ubicación precisa.'];
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.text('Permisos del piloto'), findsOneWidget);
+      expect(find.text('Hola, Piloto'), findsNothing);
+      expect(activeRequests, 1);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   testWidgets('Login is saved and only a confirmed logout clears it', (
     tester,
   ) async {
@@ -42,6 +84,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: LoginPage(
+          checkPermissions: (_) async => [],
           api: api,
           store: MemoryPingStore(),
           sessionStore: sessions,

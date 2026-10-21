@@ -11,6 +11,7 @@ enum LocationIssue {
   deniedForever,
   timeout,
   unavailable,
+  approximate,
 }
 
 class LocationException implements Exception {
@@ -18,6 +19,7 @@ class LocationException implements Exception {
   final LocationIssue issue;
 
   String get message => switch (issue) {
+    LocationIssue.approximate => 'Activa la ubicación precisa en los permisos de la app para iniciar el viaje.',
     LocationIssue.serviceDisabled => 'La ubicación del dispositivo está desactivada. Actívala e intenta de nuevo.',
     LocationIssue.denied =>
       kIsWeb
@@ -57,6 +59,11 @@ Future<Position> currentLocation({
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.unableToDetermine) {
       throw const LocationException(LocationIssue.denied);
+    }
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        await Geolocator.getLocationAccuracy() !=
+            LocationAccuracyStatus.precise) {
+      throw const LocationException(LocationIssue.approximate);
     }
   }
   try {
