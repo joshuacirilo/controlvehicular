@@ -8,6 +8,7 @@ export type PingInput = {
   longitude: number;
   accuracy: number | null;
   timestamp: Date;
+  qualityFlags?: string[];
 };
 
 const inRange = (value: unknown, min: number, max: number): value is number =>
@@ -16,7 +17,10 @@ const inRange = (value: unknown, min: number, max: number): value is number =>
 /** Validates one device sample; timestamps must be ISO strings within the accepted clock window. */
 export function parsePing(value: unknown, now = new Date()): PingInput | null {
   if (!value || typeof value !== 'object') return null;
-  const { pingId, latitude, longitude, accuracy, timestamp } = value as Record<string, unknown>;
+  const { pingId, latitude, longitude, accuracy, timestamp, qualityFlags } = value as Record<string, unknown>;
+  const allowedFlags = ['low_accuracy', 'stale', 'mocked', 'out_of_order', 'gap', 'jump'];
+  if (qualityFlags !== undefined && (!Array.isArray(qualityFlags) || qualityFlags.length > allowedFlags.length ||
+    qualityFlags.some(flag => typeof flag !== 'string' || !allowedFlags.includes(flag)))) return null;
   if (typeof pingId !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(pingId)) return null;
   if (!inRange(latitude, -90, 90) || !inRange(longitude, -180, 180)) return null;
   if (accuracy !== null && accuracy !== undefined && !inRange(accuracy, 0, 100000)) return null;
@@ -26,7 +30,8 @@ export function parsePing(value: unknown, now = new Date()): PingInput | null {
   if (Number.isNaN(time) || time > now.getTime() + MAX_CLOCK_SKEW_MS || time < now.getTime() - MAX_PING_AGE_MS) {
     return null;
   }
-  return { pingId, latitude, longitude, accuracy: accuracy ?? null, timestamp: date };
+  return { pingId, latitude, longitude, accuracy: accuracy ?? null, timestamp: date,
+    qualityFlags: qualityFlags === undefined ? [] : [...new Set(qualityFlags as string[])] };
 }
 
 export type StoredPoint = { coordinates: [number, number]; timestamp: Date; accuracy: number | null };

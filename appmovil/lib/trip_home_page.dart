@@ -1,3 +1,9 @@
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
+
+import 'core/gps_quality.dart';
+
 import 'package:flutter/material.dart';
 
 import 'core/brand.dart';
@@ -25,7 +31,7 @@ class TripHomePage extends StatelessWidget {
             title: 'QR del camión',
             instructions:
                 'Escanea el QR del camión para iniciar el viaje. '
-                'Después enviaremos tu ubicación cada 5 segundos.',
+                'Guardaremos tu ubicación cada 5 segundos y la enviaremos por lotes cada minuto.',
             parse: TruckCredentials.parse,
           ),
         ),
@@ -148,7 +154,7 @@ class TripHomePage extends StatelessWidget {
                           ? const _ButtonSpinner(color: Colors.white)
                           : const Icon(Icons.play_circle_outline, size: 32),
                       label: Text(switch (status) {
-                        TripStatus.starting => 'Iniciando viaje...',
+                        TripStatus.starting => 'Buscando señal GPS...',
                         TripStatus.idle => 'Iniciar viaje',
                         _ => 'Viaje en curso',
                       }, style: _bigLabel),
@@ -310,10 +316,57 @@ class _ActiveTripCard extends StatelessWidget {
                   : 'Velocidad (calculada por el servidor): ${speed.toStringAsFixed(speed < 10 ? 1 : 0)} km/h',
             ),
             if (position != null) ...[
+              Text(
+                'Señal GPS: ${isFreshPosition(position, DateTime.now()) ? gpsQualityLabel(position.accuracy) : "Baja · ubicación antigua"}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color:
+                      !isFreshPosition(position, DateTime.now()) ||
+                          gpsQuality(position.accuracy) == GpsQuality.poor
+                      ? const Color(0xffb42318)
+                      : gpsQuality(position.accuracy) == GpsQuality.fair
+                      ? const Color(0xff92400e)
+                      : const Color(0xff027a48),
+                ),
+              ),
               Text('Latitud: ${position.latitude.toStringAsFixed(6)}'),
               Text('Longitud: ${position.longitude.toStringAsFixed(6)}'),
               Text('Precisión: ± ${position.accuracy.round()} m'),
             ],
+            ExpansionTile(
+              title: const Text('Diagnóstico GPS'),
+              children: [
+                Text('Muestras dudosas: ${tracker.questionableSamples}'),
+                Text(
+                  'Último intervalo: ${tracker.lastSampleIntervalSeconds?.toStringAsFixed(1) ?? "—"} s · Mayor intervalo: ${tracker.maxSampleGapSeconds.toStringAsFixed(1)} s',
+                ),
+                const Text(
+                  'Registro de esta sesión: últimas 360 muestras. El estado indica si la app estaba visible o en segundo plano; no mide directamente la pantalla.',
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.copy),
+                  label: const Text('Copiar diagnóstico'),
+                  onPressed: () async {
+                    await Clipboard.setData(
+                      ClipboardData(
+                        text: const JsonEncoder.withIndent('  ').convert({
+                          'tripId': trip.id,
+                          'sampleIntervalSeconds': tracker.interval.inSeconds,
+                          'uploadIntervalSeconds':
+                              tracker.uploadInterval.inSeconds,
+                          'samples': tracker.gpsDiagnostics,
+                        }),
+                      ),
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Diagnóstico copiado.')),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             Semantics(
               liveRegion: true,
@@ -343,6 +396,9 @@ class _ActiveTripCard extends StatelessWidget {
             ),
             Text(
               'Enviadas: ${tracker.sentCount} · Pendientes: ${tracker.pendingCount}',
+            ),
+            Text(
+              'Captura cada ${tracker.interval.inSeconds} s · Envío por lotes cada ${tracker.uploadInterval.inSeconds} s.',
             ),
             if (tracker.rejectedCount > 0)
               Text('Rechazadas por el servidor: ${tracker.rejectedCount}'),

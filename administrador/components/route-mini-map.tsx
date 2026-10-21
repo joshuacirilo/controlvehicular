@@ -1,11 +1,15 @@
 'use client';
 import 'leaflet/dist/leaflet.css';
-import type { LatLngTuple } from 'leaflet';
-import { useEffect, useRef } from 'react';
-import { CircleMarker, MapContainer, Polyline, TileLayer, useMap } from 'react-leaflet';
+import { divIcon, type LatLngTuple } from 'leaflet';
+import { useEffect, useMemo, useRef } from 'react';
+import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
+import { hasQuestionableFix, type CheckpointQuality } from '@/lib/route-quality';
+import { returnSections } from '@/lib/route-returns';
+import { RouteDirectionArrows } from '@/components/route-direction-arrows';
 
-const START_STYLE = { color: '#fff', weight: 2, fillColor: '#0ddddf', fillOpacity: 1 };
-const END_STYLE = { color: '#fff', weight: 2, fillColor: '#01215a', fillOpacity: 1 };
+const checkpointTime = new Intl.DateTimeFormat('es-GT', {
+  timeZone: 'America/Guatemala', dateStyle: 'short', timeStyle: 'medium',
+});
 
 // Leaflet measures its container once; inside a dialog that is still zero-sized at creation,
 // so the view is fitted again the first time the container gets a real size.
@@ -26,25 +30,52 @@ function FitWhenSized({ ruta, padding }: { ruta: LatLngTuple[]; padding: number 
   return null;
 }
 
-/** Map of one trip: the trace plus its start (teal) and end (navy) points. Static unless `interactive`. */
-export default function RouteMiniMap({ ruta, interactive = false }: { ruta: LatLngTuple[]; interactive?: boolean }) {
+/** Keep the full route, but only mark questionable fixes at their original indices. */
+export default function RouteMiniMap({ ruta, checkpoints, interactive = false }: {
+  ruta: [number, number][]; checkpoints: CheckpointQuality[]; interactive?: boolean;
+}) {
+  const returns = useMemo(() => returnSections(ruta, ruta.slice(1).map((_, index) => {
+    const previous = checkpoints[index];
+    const next = checkpoints[index + 1];
+    if (hasQuestionableFix(previous) || hasQuestionableFix(next)) return false;
+    const elapsed = Date.parse(next.timestamp) - Date.parse(previous.timestamp);
+    return elapsed > 0 && elapsed <= 30_000;
+  })), [ruta, checkpoints]);
   const first = ruta[0];
-  const last = ruta[ruta.length - 1];
-  const padding = interactive ? 48 : 16;
+  const padding = interactive ? 48 : 24;
+  if (!first) return <div className="route-map-empty">Sin recorrido registrado</div>;
   const view = ruta.length > 1
     ? { bounds: ruta, boundsOptions: { padding: [padding, padding] as [number, number], maxZoom: 16 } }
     : { center: first, zoom: 15 };
-  return <MapContainer {...view} className="route-map-canvas" dragging={interactive} zoomControl={interactive}
+  return <MapContainer {...view} maxZoom={25} className="route-map-canvas" dragging={interactive} zoomControl={interactive}
     scrollWheelZoom={interactive} doubleClickZoom={interactive} touchZoom={interactive} boxZoom={interactive}
     keyboard={interactive}>
     <TileLayer
+      maxNativeZoom={19} maxZoom={25}
       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
       url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     />
     <FitWhenSized ruta={ruta} padding={padding} />
     {ruta.length > 1 && <Polyline positions={ruta}
       pathOptions={{ color: '#0349b9', weight: interactive ? 5 : 4, opacity: 0.85 }} />}
-    <CircleMarker center={first} radius={interactive ? 8 : 6} pathOptions={START_STYLE} />
-    {ruta.length > 1 && <CircleMarker center={last} radius={interactive ? 8 : 6} pathOptions={END_STYLE} />}
+    {returns.map((positions, index) => <Polyline key={index} positions={positions}
+      pathOptions={{ color: '#9333ea', weight: interactive ? 7 : 6, opacity: 1, dashArray: '10 10' }} />)}
+    <RouteDirectionArrows route={ruta} returns={returns} />
+    {ruta.map((position, index) => hasQuestionableFix(checkpoints[index]) ? <Marker key={index} position={position}
+      title={`Checkpoint ${index}`} alt={`Checkpoint ${index}`}
+      interactive={interactive} keyboard={interactive}
+      icon={divIcon({
+        className: 'route-checkpoint-icon',
+        html: '<span class="route-checkpoint is-uncertain"></span>',
+        iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -7],
+      })}>
+      <Popup><strong>Checkpoint {index}</strong><br />
+        Latitud: {position[0].toFixed(6)}<br />Longitud: {position[1].toFixed(6)}<br />
+        Precisión reportada: {checkpoints[index]?.precision == null ? 'Desconocida' : `${Math.round(checkpoints[index].precision!)} m`}<br />
+        {checkpoints[index] && checkpointTime.format(new Date(checkpoints[index].timestamp))}
+        {checkpoints[index]?.qualityFlags?.length ? <p>Alertas del dispositivo: {checkpoints[index].qualityFlags!.map(flag => ({ low_accuracy: "Baja precisión", stale: "Muestra antigua", mocked: "Ubicación simulada", out_of_order: "Fuera de orden", gap: "Intervalo sin muestras", jump: "Salto sospechoso" }[flag] ?? flag)).join(", ")}</p> : null}
+        {hasQuestionableFix(checkpoints[index]) && <p>Ubicación dudosa: incluida en la línea del recorrido.</p>}
+      </Popup>
+    </Marker> : null)}
   </MapContainer>;
 }

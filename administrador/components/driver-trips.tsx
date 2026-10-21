@@ -41,10 +41,10 @@ function RouteMapDialog({ trip, title, onClose }: { trip: TripRoute; title: stri
           <CloseIcon />
         </button>
       </header>
-      <div className="route-dialog-map"><RouteMiniMap ruta={trip.ruta} interactive /></div>
+      <div className="route-dialog-map"><RouteMiniMap ruta={trip.ruta} checkpoints={trip.checkpoints} interactive /></div>
       <p className="route-dialog-legend">
-        <span className="legend-dot is-start" aria-hidden="true" />Inicio
-        <span className="legend-dot is-end" aria-hidden="true" />{trip.fin ? 'Fin' : 'Última ubicación'}
+        Azul: recorrido completo. Morado discontinuo: regreso estimado por un tramo ya recorrido en sentido contrario. Las flechas indican el sentido hacia el siguiente checkpoint.
+        <span className="legend-dot is-uncertain" aria-hidden="true" />Solo se marcan las ubicaciones dudosas en naranja. La línea conecta todos los checkpoints en orden.
       </p>
     </div>
   </dialog>;
@@ -57,7 +57,7 @@ function RouteCard({ trip, title }: { trip: TripRoute; title: string }) {
     <div className="route-map">
       {trip.ruta.length
         ? <>
-          <RouteMiniMap ruta={trip.ruta} />
+          <RouteMiniMap ruta={trip.ruta} checkpoints={trip.checkpoints} />
           <button type="button" className="route-map-expand" onClick={() => setExpanded(true)}
             aria-label="Ampliar mapa del recorrido" title="Ampliar mapa">
             <ExpandIcon /><span>Ampliar</span>
@@ -72,7 +72,7 @@ function RouteCard({ trip, title }: { trip: TripRoute; title: string }) {
         <dt>Inicio</dt><dd>{dateTime.format(new Date(trip.inicio))}</dd>
         <dt>Fin</dt><dd>{trip.fin ? dateTime.format(new Date(trip.fin)) : '—'}</dd>
         <dt>Duración</dt><dd>{duration(trip)}</dd>
-        <dt>Distancia</dt><dd>{trip.distanciaKm} km</dd>
+        <dt>Distancia estimada</dt><dd>{trip.distanciaKm} km (tramos con señal válida)</dd>
         <dt>Puntos GPS</dt><dd>{trip.puntos}</dd>
       </dl>
     </div>

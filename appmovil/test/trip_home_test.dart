@@ -19,6 +19,7 @@ const _json = {'content-type': 'application/json; charset=utf-8'};
 class _FakeServer {
   final requests = <http.Request>[];
   int failingPings = 0;
+  Completer<void>? pingGate;
   bool sessionExpired = false;
   bool offline = false;
   String busyPlate = 'BUSY';
@@ -68,6 +69,7 @@ class _FakeServer {
       );
     }
     if (path == '/api/trips/trip-1/ping') {
+      await pingGate?.future;
       if (sessionExpired) {
         return http.Response(
           '{"message":"Sesión vencida."}',
@@ -132,6 +134,7 @@ Future<(_FakeServer, TripTracker)> _pumpTrip(
   PingStore? store,
   SessionStore? sessions,
   Stream<Position> Function()? watch,
+  Duration uploadInterval = const Duration(seconds: 5),
 }) async {
   _tallView(tester);
   final server = _FakeServer();
@@ -143,6 +146,7 @@ Future<(_FakeServer, TripTracker)> _pumpTrip(
     sessionStore: sessions,
     locate: _locate,
     watch: watch,
+    uploadInterval: uploadInterval,
   );
   await tester.pumpWidget(
     MaterialApp(
@@ -174,6 +178,88 @@ Future<void> _finish(WidgetTester tester, TripTracker tracker) async {
 const _tick = Duration(seconds: 5);
 
 void main() {
+  testWidgets(
+    'A slow upload does not stop capture or start duplicate uploads',
+    (tester) async {
+      final (server, tracker) = await _pumpTrip(
+        tester,
+        uploadInterval: const Duration(minutes: 1),
+      );
+      final gate = Completer<void>();
+      server.pingGate = gate;
+      // Keep the response pending for 10 seconds, below the API timeout.
+      for (var i = 0; i < 14; i++) {
+        await tester.pump(_tick);
+      }
+      expect(server.pings, hasLength(1));
+      expect(tracker.pendingCount, 14);
+      gate.complete();
+      await tester.pump();
+      expect(tracker.pendingCount, 0);
+      expect(server.pings, hasLength(2));
+      expect(server.pings.expand(server.pingIds).toSet(), hasLength(14));
+      await _finish(tester, tracker);
+    },
+  );
+  testWidgets('Captures every five seconds and uploads one minute as a batch', (
+    tester,
+  ) async {
+    final (server, tracker) = await _pumpTrip(
+      tester,
+      uploadInterval: const Duration(minutes: 1),
+    );
+    for (var i = 0; i < 11; i++) {
+      await tester.pump(_tick);
+    }
+    expect(server.pings, isEmpty);
+    expect(tracker.pendingCount, 11);
+    await tester.pump(_tick);
+    expect(server.pings, hasLength(1));
+    final samples =
+        (jsonDecode(server.pings.single.body) as Map)['pings'] as List;
+    expect(samples, hasLength(12));
+    expect(samples.map((p) => p['pingId']).toSet(), hasLength(12));
+    for (var i = 1; i < samples.length; i++) {
+      final previous = DateTime.parse(samples[i - 1]['timestamp'] as String);
+      final current = DateTime.parse(samples[i]['timestamp'] as String);
+      expect(current.isBefore(previous), isFalse);
+    }
+    expect(tracker.pendingCount, 0);
+    await tester.pump(_tick);
+    expect(tracker.pendingCount, 1);
+    await tester.tap(find.text('Terminar viaje'));
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(server.pings, hasLength(2));
+    expect(server.pingIds(server.pings.last), hasLength(1));
+    expect(server.ends, hasLength(1));
+    await _finish(tester, tracker);
+  });
+
+  testWidgets(
+    'A failed minute batch retains all ids and retries with new samples',
+    (tester) async {
+      final (server, tracker) = await _pumpTrip(
+        tester,
+        uploadInterval: const Duration(minutes: 1),
+      );
+      server.failingPings = 1;
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(_tick);
+      }
+      final failed = server.pingIds(server.pings.single);
+      expect(failed, hasLength(12));
+      expect(tracker.pendingCount, 12);
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(_tick);
+      }
+      expect(server.pings, hasLength(2));
+      expect(server.pingIds(server.pings.last), hasLength(24));
+      expect(server.pingIds(server.pings.last).take(12), failed);
+      expect(tracker.pendingCount, 0);
+      await _finish(tester, tracker);
+    },
+  );
+
   testWidgets('Starts with the truck QR and sends a ping every 5 seconds', (
     tester,
   ) async {
@@ -434,6 +520,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: LoginPage(
+          checkPermissions: (_) async => [],
           api: server.api,
           store: MemoryPingStore(),
           sessionStore: sessions,
@@ -457,7 +544,8 @@ void main() {
     expect(positions.hasListener, isTrue);
 
     positions.add(_positionAt(DateTime.now()));
-    await tester.pump(_tick);
+    await tester.pump();
+    await tester.pump(const Duration(minutes: 1));
     expect(server.pings, hasLength(1));
     expect(server.pings.single.url.path, '/api/trips/trip-1/ping');
     await tester.pumpWidget(const SizedBox());
@@ -480,6 +568,7 @@ void main() {
       token: 'token-1',
       userId: 'user-1',
       sessionStore: sessions,
+      uploadInterval: _tick,
       locate: _locate,
     );
     unawaited(tracker.resumeActiveTrip());

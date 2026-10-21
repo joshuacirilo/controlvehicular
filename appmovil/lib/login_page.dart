@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
 import 'core/api_client.dart';
@@ -12,6 +13,8 @@ import 'core/session_store.dart';
 import 'core/trip_tracker.dart';
 import 'qr_scan_page.dart';
 import 'trip_home_page.dart';
+import 'core/access_permissions.dart';
+import 'pilot_permission_gate.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({
@@ -22,6 +25,7 @@ class LoginPage extends StatefulWidget {
     this.sessionStore,
     this.locate,
     this.watch,
+    this.checkPermissions = checkPilotPermissions,
   });
   final Future<QrCredentials?> Function(BuildContext)? scanQr;
   final ApiClient? api;
@@ -35,11 +39,12 @@ class LoginPage extends StatefulWidget {
   /// Location sources for tests; the device GPS when null.
   final Future<Position> Function()? locate;
   final Stream<Position> Function()? watch;
+  final PermissionCheck checkPermissions;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
   final _form = GlobalKey<FormState>();
   final _username = TextEditingController();
   final _password = TextEditingController();
@@ -49,12 +54,14 @@ class _LoginPageState extends State<LoginPage> {
   bool _restoring = true;
   String? _error;
   AuthSession? _session;
+  AuthSession? _pendingSession;
   TripTracker? _tracker;
   late final Future<PingStore> _store;
   late final SessionStore _sessions;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _store = widget.store != null
         ? Future.value(widget.store!)
         : openPingStore();
@@ -65,6 +72,31 @@ class _LoginPageState extends State<LoginPage> {
       _error = 'Falta configurar una dirección válida del servidor.';
     }
     _restoreSession();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !kIsWeb) {
+      unawaited(_recheckAccess());
+    }
+  }
+
+  Future<void> _recheckAccess() async {
+    final session = _session;
+    if (session == null) return;
+    bool allowed;
+    try {
+      allowed = (await widget.checkPermissions(false)).isEmpty;
+    } catch (_) {
+      allowed = false;
+    }
+    if (!mounted || _session != session || allowed) return;
+    _tracker?.dispose();
+    setState(() {
+      _tracker = null;
+      _session = null;
+      _pendingSession = session;
+    });
   }
 
   /// The session survives app restarts: only an explicit logout ends it.
@@ -80,6 +112,12 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _open(AuthSession session) async {
+    if (mounted) setState(() => _pendingSession = session);
+  }
+
+  Future<void> _activateSession() async {
+    final session = _pendingSession;
+    if (session == null) return;
     final store = await _store;
     if (!mounted) return;
     final tracker = TripTracker(
@@ -95,6 +133,7 @@ class _LoginPageState extends State<LoginPage> {
     );
     setState(() {
       _session = session;
+      _pendingSession = null;
       _tracker = tracker;
     });
     unawaited(tracker.resumeActiveTrip());
@@ -187,6 +226,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tracker?.dispose();
     _username.dispose();
     _password.dispose();
@@ -201,6 +241,11 @@ class _LoginPageState extends State<LoginPage> {
           name: _session!.name,
           tracker: _tracker!,
           onLogout: _logout,
+        )
+      : _pendingSession != null
+      ? PilotPermissionGate(
+          check: widget.checkPermissions,
+          onReady: _activateSession,
         )
       : _restoring
       ? const Scaffold(

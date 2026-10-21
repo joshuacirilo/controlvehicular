@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:sqflite_common/sqlite_api.dart';
@@ -68,7 +69,14 @@ class SqlitePingStore implements PingStore {
     final db = await factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await db.execute(
+              "ALTER TABLE $_table ADD COLUMN quality_flags TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+        },
         onCreate: (db, _) async {
           await db.execute('''
             CREATE TABLE $_table (
@@ -78,7 +86,8 @@ class SqlitePingStore implements PingStore {
               latitude REAL NOT NULL,
               longitude REAL NOT NULL,
               accuracy REAL NOT NULL,
-              taken_at INTEGER NOT NULL
+              taken_at INTEGER NOT NULL,
+              quality_flags TEXT NOT NULL DEFAULT '[]'
             )
           ''');
           await db.execute(
@@ -103,6 +112,7 @@ class SqlitePingStore implements PingStore {
         'longitude': ping.longitude,
         'accuracy': ping.accuracy,
         'taken_at': ping.timestamp.millisecondsSinceEpoch,
+        'quality_flags': jsonEncode(ping.qualityFlags),
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
   @override
@@ -131,6 +141,8 @@ class SqlitePingStore implements PingStore {
           latitude: (row['latitude'] as num).toDouble(),
           longitude: (row['longitude'] as num).toDouble(),
           accuracy: (row['accuracy'] as num).toDouble(),
+          qualityFlags: (jsonDecode(row['quality_flags'] as String) as List)
+              .cast<String>(),
           timestamp: DateTime.fromMillisecondsSinceEpoch(
             row['taken_at'] as int,
             isUtc: true,

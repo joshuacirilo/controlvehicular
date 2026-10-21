@@ -1,4 +1,5 @@
 /** Dates are ISO 8601 with the -06:00 offset, like the rest of the admin API. */
+import type { CheckpointQuality } from './route-quality';
 
 export const TRUCKS_PER_PAGE = 10;
 export const TRIPS_PER_PAGE = 5;
@@ -27,7 +28,7 @@ export type TruckHistoryPage = {
   trucks: TruckHistory[];
 };
 
-/** One trip of a driver with a truck; `ruta` is a reduced `[lat, lng]` trace for small maps. */
+/** One trip; `ruta` contains every `[lat, lng]` fix chronologically, numbered from index 0. */
 export type TripRoute = {
   tripId: string;
   estado: 'activo' | 'finalizado';
@@ -36,6 +37,7 @@ export type TripRoute = {
   puntos: number;
   distanciaKm: number;
   ruta: [number, number][];
+  checkpoints: CheckpointQuality[];
 };
 
 /** Served by `GET /api/trucks/:truckId/drivers/:driverId/trips?page=N`. */
