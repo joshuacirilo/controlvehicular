@@ -1,5 +1,5 @@
 import 'server-only';
-import type { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import {
   TRIPS_PER_PAGE, TRUCKS_PER_PAGE, type DriverTripsPage, type TripRoute, type TruckHistoryPage,
 } from '@/lib/truck-history';
@@ -8,6 +8,8 @@ import { formatGuatemala } from '@/server/time';
 import { distanceMeters } from '@/server/trips/pings';
 import { hasUsableAccuracy, MAX_ROUTE_GAP_MS } from '@/lib/route-quality';
 import type { Result } from '@/server/trips/service';
+import { getSpeedControl } from '@/server/control/speed';
+import { routeSpeed } from '@/server/control/route-speed';
 
 type TruckRow = {
   _id: ObjectId;
@@ -19,7 +21,7 @@ type TruckRow = {
 
 type TripRow = { _id: ObjectId; estado: 'activo' | 'finalizado'; inicio: Date; fin: Date | null };
 
-type PingRow = { coords: { coordinates: [number, number] }; precision?: number | null; timestamp: Date; qualityFlags?: string[] };
+type PingRow = { coords: { coordinates: [number, number] }; precision?: number | null; timestamp: Date; qualityFlags?: string[]; velocidad?: number | null };
 
 const pageCount = (total: number, size: number) => Math.max(1, Math.ceil(total / size));
 const clampPage = (page: number, totalPages: number) => Math.min(Math.max(1, page), totalPages);
@@ -109,7 +111,7 @@ function routeSummary(pings: PingRow[]) {
   // Keep every fix in chronological order: its array index is its checkpoint number.
   const ruta = pings
     .map(({ coords: { coordinates: [lng, lat] } }): [number, number] => [lat, lng]);
-  const checkpoints = pings.map(ping => ({ precision: ping.precision ?? null, timestamp: formatGuatemala(ping.timestamp), qualityFlags: ping.qualityFlags ?? [] }));
+  const checkpoints = pings.map(ping => ({ precision: ping.precision ?? null, timestamp: formatGuatemala(ping.timestamp), qualityFlags: ping.qualityFlags ?? [], velocidad: ping.velocidad ?? null }));
   return { distanciaKm: Math.round(meters / 100) / 10, ruta, checkpoints };
 }
 
@@ -118,11 +120,12 @@ export async function driverTrips(
   truckId: ObjectId,
   driverId: ObjectId,
   requestedPage: number,
+  selectedTrip?: ObjectId,
 ): Promise<Result<DriverTripsPage>> {
   const db = await getDb();
   const trips = db.collection<TripRow>('trips');
   const pings = db.collection<PingRow & { tripId: ObjectId; timestamp: Date }>('locationPings');
-  const filter = { truckId, driverId };
+  const filter = { truckId, driverId, ...(selectedTrip ? { _id: selectedTrip } : {}) };
   const total = await trips.countDocuments(filter);
   const totalPages = pageCount(total, TRIPS_PER_PAGE);
   const page = clampPage(requestedPage, totalPages);
@@ -132,19 +135,37 @@ export async function driverTrips(
     .limit(TRIPS_PER_PAGE)
     .toArray();
 
+  const control = await getSpeedControl();
   const result: TripRoute[] = await Promise.all(rows.map(async trip => {
-    const tripPings = await pings.find({ tripId: trip._id }, { projection: { _id: 0, coords: 1, precision: 1, timestamp: 1, qualityFlags: 1 } })
+    const tripPings = await pings.find({ tripId: trip._id }, { projection: { _id: 0, coords: 1, precision: 1, timestamp: 1, qualityFlags: 1, velocidad: 1 } })
       .sort({ timestamp: 1, _id: 1 })
       .toArray();
+    const summary = routeSummary(tripPings);
     return {
       tripId: trip._id.toHexString(),
       estado: trip.estado,
       inicio: formatGuatemala(trip.inicio),
       fin: trip.fin ? formatGuatemala(trip.fin) : null,
       puntos: tripPings.length,
-      ...routeSummary(tripPings),
+      ...summary,
+      velocidad: routeSpeed(summary.ruta, summary.checkpoints, control?.velocidadPromedio ?? null),
     };
   }));
 
   return { ok: true, status: 200, body: { page, totalPages, total, trips: result } };
+}
+
+/** Resolve the exact trip independently of both history pagination levels. Caller authorizes admin access. */
+export async function selectedTripHistory(id: string) {
+  if (!/^[a-fA-F0-9]{24}$/.test(id)) return null;
+  const db = await getDb();
+  const trip = await db.collection<TripRow & { truckId: ObjectId; driverId: ObjectId }>('trips').findOne({ _id: new ObjectId(id) });
+  if (!trip) return null;
+  const [truck, driver, history] = await Promise.all([
+    db.collection('trucks').findOne({ _id: trip.truckId }, { projection: { placa: 1 } }),
+    db.collection('drivers').findOne({ _id: trip.driverId }, { projection: { nombre: 1 } }),
+    driverTrips(trip.truckId, trip.driverId, 1, trip._id),
+  ]);
+  if (!history.ok || !history.body.trips[0]) return null;
+  return { trip: history.body.trips[0], title: `${truck?.placa ?? 'Sin placa'} · ${driver?.nombre ?? 'Sin conductor'}` };
 }

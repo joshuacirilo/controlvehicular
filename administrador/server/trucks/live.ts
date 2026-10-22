@@ -1,6 +1,8 @@
 import 'server-only';
 import type { ObjectId } from 'mongodb';
-import type { LiveTrucksResponse } from '@/lib/live-trucks';
+import type { LiveTrucksResponse, LiveRoute } from '@/lib/live-trucks';
+import { getSpeedControl } from '@/server/control/speed';
+import { liveSpeed, type LivePing } from '@/server/trucks/live-speed';
 import { getDb } from '@/server/db/mongo';
 import { formatGuatemala } from '@/server/time';
 import type { Result } from '@/server/trips/service';
@@ -17,10 +19,12 @@ type LiveRow = {
     precision?: number | null;
     timestamp: Date;
   };
+  recent: LivePing[];
 };
 
 /** Active trips with their truck, driver and latest ping (uses the `{tripId, timestamp}` index). */
-export async function liveTrucks(): Promise<Result<LiveTrucksResponse>> {
+export async function liveTrucks(selectedTrip?: string): Promise<Result<LiveTrucksResponse>> {
+  const control = await getSpeedControl();
   const rows = await (await getDb()).collection('trips').aggregate<LiveRow>([
     { $match: { estado: 'activo' } },
     {
@@ -40,14 +44,14 @@ export async function liveTrucks(): Promise<Result<LiveTrucksResponse>> {
         from: 'locationPings', localField: '_id', foreignField: 'tripId', as: 'ping',
         pipeline: [
           { $sort: { timestamp: -1, _id: -1 } },
-          { $limit: 1 },
-          { $project: { _id: 0, coords: 1, velocidad: 1, precision: 1, timestamp: 1 } },
+          { $limit: 2 },
+          { $project: { _id: 0, coords: 1, precision: 1, timestamp: 1, qualityFlags: 1 } },
         ],
       },
     },
     {
       $project: {
-        truckId: 1, inicio: 1,
+        truckId: 1, inicio: 1, recent: '$ping',
         truck: { $first: '$truck' }, driver: { $first: '$driver' }, ping: { $first: '$ping' },
       },
     },
@@ -64,12 +68,20 @@ export async function liveTrucks(): Promise<Result<LiveTrucksResponse>> {
       ? {
         lat: row.ping.coords.coordinates[1],
         lng: row.ping.coords.coordinates[0],
-        velocidad: row.ping.velocidad,
+        velocidad: liveSpeed(row.recent),
         precision: row.ping.precision ?? null,
         timestamp: formatGuatemala(row.ping.timestamp),
       }
       : null,
   })).sort((a, b) => a.placa.localeCompare(b.placa));
 
-  return { ok: true, status: 200, body: { trucks } };
+  let route: LiveRoute | null = null;
+  const selected = rows.find(row => row._id.toHexString() === selectedTrip);
+  if (selected) {
+    const points = await (await getDb()).collection<LivePing & { tripId: ObjectId }>('locationPings')
+      .find({ tripId: selected._id }, { projection: { coords: 1 }, maxTimeMS: 15000 })
+      .sort({ timestamp: 1, _id: 1 }).toArray();
+    route = { tripId: selected._id.toHexString(), ruta: points.map(p => [p.coords.coordinates[1], p.coords.coordinates[0]]) };
+  }
+  return { ok: true, status: 200, body: { trucks, limiteKmh: control?.velocidadPromedio ?? null, route } };
 }

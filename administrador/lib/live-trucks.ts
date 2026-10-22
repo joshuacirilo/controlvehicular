@@ -19,4 +19,10 @@ export type LiveTruck = {
   ubicacion: TruckLocation | null;
 };
 
-export type LiveTrucksResponse = { trucks: LiveTruck[] };
+export const LIVE_FRESH_MS = 90_000;
+export function isRecentLocation(timestamp: string, now: number) {
+  const age = now - Date.parse(timestamp);
+  return Number.isFinite(age) && age >= 0 && age <= LIVE_FRESH_MS;
+}
+export type LiveRoute = { tripId: string; ruta: [number, number][] };
+export type LiveTrucksResponse = { trucks: LiveTruck[]; limiteKmh: number | null; route: LiveRoute | null };

@@ -68,6 +68,7 @@ body {
 .account-fields input { width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; background: white; }
 .account-card :is(input, button, a):focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 .account-error { margin-top: 16px; color: var(--danger); }
+.control-summary { display: grid; gap: 8px; margin-top: 20px; padding: 16px; border-radius: 10px; background: var(--brand-tint); font-size: 14px; overflow-wrap: anywhere; }
 .qr-result { display: grid; justify-items: center; gap: 16px; text-align: center; }
 .qr-result h2 { margin: 0; }
 .qr-result img { max-width: 100%; height: auto; }
@@ -173,6 +174,22 @@ body:has(.route-dialog[open]) { overflow: hidden; }
 .route-dialog-close:hover { background: var(--surface); color: var(--ink); }
 .route-dialog-close:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .route-dialog-map { flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--line); }
+.route-dialog-content { display: flex; flex: 1; gap: 14px; min-height: 0; }
+.route-dialog-content .route-dialog-map { min-width: 0; }
+.route-speed-sidebar { width: 270px; flex-shrink: 0; overflow-y: auto; padding: 12px; border: 1px solid var(--line); border-radius: 14px; font-size: 13px; }
+.route-speed-sidebar h4 { font-size: 16px; font-weight: 700; color: var(--brand-navy); }
+.route-speed-sidebar p { margin: 10px 0; }
+.route-speed-list { display: grid; gap: 8px; list-style: none; padding: 0; margin: 12px 0; }
+.route-speed-list button { display: grid; gap: 5px; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; }
+.route-speed-list button[aria-pressed="true"] { border-color: #dc2626; background: #fef2f2; color: #991b1b; }
+.route-speed-list button:focus-visible, .route-speed-reset:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.route-speed-reset { color: var(--brand-blue); text-decoration: underline; cursor: pointer; padding: 8px 0; }
+.route-speed-note { display: block; margin-top: 4px; color: var(--muted); }
+@media (max-width: 700px) {
+  .route-dialog-content { flex-direction: column-reverse; }
+  .route-speed-sidebar { width: 100%; max-height: 35%; }
+  .route-dialog-content .route-dialog-map { min-height: 160px; }
+}
 .route-dialog-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--muted); }
 .legend-dot { width: 12px; height: 12px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
 .legend-dot.is-start { background: var(--brand-teal); }
@@ -206,3 +223,72 @@ body:has(.route-dialog[open]) { overflow: hidden; }
   .panel-main { padding: 24px 20px; }
   .map-page { height: calc(100dvh - 48px); }
 }
+.dashboard-page { display: grid; gap: 24px; max-width: 1440px; margin: 0 auto; }
+.dashboard-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.dashboard-eyebrow { color: var(--brand-blue); font-size: 12px; font-weight: 700; letter-spacing: .13em; }
+.dashboard-period { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.dashboard-period a { padding: 9px 15px; border-radius: 10px; border: 1px solid var(--line); background: white; font-size: 14px; }
+.dashboard-period a[aria-current] { color: white; background: var(--brand-navy); border-color: var(--brand-navy); }
+.dashboard-period span { margin-left: auto; font-size: 12px; color: var(--muted); }
+.dashboard-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.dashboard-card, .dashboard-section { background: white; border: 1px solid var(--line); border-radius: 18px; padding: 24px; box-shadow: 0 3px 14px rgb(1 33 90 / .04); }
+.dashboard-card { border-top: 3px solid var(--brand-teal); }
+.dashboard-card h2 { font-size: 14px; color: var(--muted); font-weight: 600; }
+.dashboard-card > strong { display: block; margin: 12px 0; font-size: 34px; letter-spacing: -.04em; color: var(--brand-navy); }
+.dashboard-card p { color: var(--muted); font-size: 12px; }
+.dashboard-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: start; }
+.dashboard-section { display: grid; gap: 16px; min-width: 0; }
+.dashboard-section h2 { font-size: 18px; font-weight: 700; color: var(--brand-navy); }
+.dashboard-bars { display: grid; gap: 10px; max-height: 370px; overflow-y: auto; }
+.dashboard-bar-row { display: grid; grid-template-columns: 48px 1fr 40px; gap: 12px; align-items: center; font-size: 13px; }
+.dashboard-bar-row time { color: var(--muted); }
+.dashboard-bar-track { background: var(--surface); height: 18px; border-radius: 5px; overflow: hidden; }
+.dashboard-bar-track > div { height: 100%; background: linear-gradient(90deg, var(--brand-blue), var(--brand-teal)); border-radius: 5px; }
+.dashboard-quality-value { font-size: 44px; font-weight: 700; letter-spacing: -.04em; color: var(--brand-navy); }
+.dashboard-section progress { width: 100%; height: 18px; accent-color: var(--brand-teal); }
+.dashboard-quality-list { display: grid; gap: 10px; }
+.dashboard-quality-list > div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.dashboard-quality-list dd { font-weight: 700; }
+.dashboard-link { color: var(--brand-blue); font-size: 14px; font-weight: 600; }
+.dashboard-table-scroll { overflow-x: auto; }
+.dashboard-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; white-space: nowrap; }
+.dashboard-table th { color: var(--muted); font-size: 12px; font-weight: 600; background: var(--surface); }
+.dashboard-table th, .dashboard-table td { padding: 14px; border-bottom: 1px solid var(--line); }
+.dashboard-page a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+@media (max-width: 1000px) { .dashboard-grid { grid-template-columns: 1fr; } .dashboard-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .dashboard-cards { grid-template-columns: 1fr; } .dashboard-card, .dashboard-section { padding: 18px; } .dashboard-period span { width: 100%; margin-left: 0; } }
+.dashboard-speed { display: grid; gap: 20px; }
+.dashboard-speed > .dashboard-heading h2 { font-size: 24px; font-weight: 700; color: var(--brand-navy); }
+.dashboard-speed .dashboard-card h3 { font-size: 14px; color: var(--muted); font-weight: 600; }
+.dashboard-speed .dashboard-section h3 { font-size: 18px; font-weight: 700; color: var(--brand-navy); }
+.dashboard-metric-button { text-align: left; cursor: pointer; }
+.dashboard-metric-button > span { display: block; font-size: 14px; }
+.dashboard-metric-button > .dashboard-link { margin-top: 12px; }
+.dashboard-metric-button:hover, .dashboard-metric-button[aria-expanded="true"] { border-color: var(--brand-blue); background: var(--brand-tint); }
+.dashboard-metric-button:focus-visible, .dashboard-pilot-details summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+.dashboard-pilot-details { min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.dashboard-pilot-details summary { cursor: pointer; color: var(--brand-navy); font-weight: 600; padding: 8px 0; }
+.dashboard-detail-dialog { width: min(1050px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 40px); margin: auto; padding: 0; border: 0; border-radius: 18px; background: white; color: var(--ink); overflow-y: auto; }
+.dashboard-detail-dialog::backdrop { background: rgb(0 21 61 / .6); backdrop-filter: blur(2px); }
+.dashboard-detail-dialog > .dashboard-section { border: 0; box-shadow: none; }
+.dashboard-detail-dialog button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+body:has(.dashboard-detail-dialog[open]) { overflow: hidden; }
+.live-map-layout { display: flex; flex-direction: row-reverse; gap: 16px; flex: 1; min-height: 0; }
+.live-map-layout .map-frame { flex: 1; min-width: 0; }
+.live-speed-sidebar { width: 310px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 18px; background: white; border: 1px solid var(--line); border-radius: 16px; font-size: 14px; }
+.live-speed-sidebar h2, .live-speed-sidebar h3 { color: var(--brand-navy); font-weight: 700; }
+.live-speed-sidebar h2 { font-size: 18px; }
+.live-speed-list { display: grid; gap: 10px; list-style: none; padding: 0; margin: 0; }
+.live-speed-list button { display: grid; gap: 6px; width: 100%; padding: 14px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--danger); border-radius: 10px; cursor: pointer; }
+.live-speed-list button[aria-pressed="true"] { background: var(--brand-tint); border-color: var(--brand-blue); }
+.live-speed-list button:focus-visible, .live-speed-sidebar a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+.live-selected-trip { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.truck-marker.is-selected .truck-marker-label { background: var(--brand-blue); outline: 3px solid var(--brand-cyan); }
+.truck-marker.is-selected .truck-marker-dot { width: 22px; height: 22px; }
+@media (max-width: 900px) { .live-map-layout { flex-direction: column; } .live-speed-sidebar { width: 100%; max-height: 35vh; } .live-map-layout .map-frame { min-height: 280px; } .map-page:has(.live-map-layout) { height: auto; min-height: calc(100dvh - 48px); } .live-map-layout .fleet-map { min-height: 400px; } }
+.live-plate-search { display: grid; gap: 8px; }
+.live-plate-search label { font-weight: 600; }
+.live-plate-search input { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); }
+.live-plate-search input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.live-plate-search button { text-align: left; cursor: pointer; }
+.live-speed-sidebar .pagination { flex-wrap: wrap; gap: 8px; }

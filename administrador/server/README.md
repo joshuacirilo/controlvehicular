@@ -190,3 +190,75 @@ GET /api/trucks/:truckId/drivers/:driverId/trips?page=N (cookie `cv_admin`,
   regla que la velocidad), asi un telefono quieto con mala precision marca 0 km.
 - Lee todos los pings de cada viaje: en viajes de varios dias convendria guardar un
   resumen al cerrar el viaje.
+# Métricas del dashboard
+
+`/dashboard` exige `getAdmin()` en la página y consulta Atlas en el servidor.
+El selector `?dias=7` o `?dias=30` incluye el día actual de Guatemala. Otros valores
+usan 7 días. `lib/dashboard.ts` convierte los límites a la convención BSON local
+existente de `trips.inicio`; no aplica la zona horaria dos veces.
+
+- Camiones y pilotos habilitados: documentos con `activo:true`, estado actual.
+  Pilotos cuenta registros de `drivers`, no sesiones ni usuarios conectados.
+- Viajes en curso: todos los viajes con `estado:'activo'`, fuera del filtro temporal.
+- Viajes iniciados y gráfica diaria: viajes cuyo inicio cae en el período.
+- Finalizados y duración promedio: de esa misma selección; duración solo para
+  finalizados con `fin` de tipo fecha y no anterior al inicio.
+- Calidad GPS: todas las muestras recibidas de esos viajes, con precisión mayor
+  de cero y hasta 50 m y sin `stale`, `mocked`, `out_of_order` o `jump`. Es calidad
+  reportada, no garantía de exactitud ni de cobertura del recorrido.
+- Seis viajes más recientes del período, con placa, piloto, inicio y estado.
+
+Los días vacíos aparecen con cero y una muestra vacía muestra «Sin datos», nunca
+100% de calidad. Las consultas operativas agregan en MongoDB y no devuelven coordenadas al
+dashboard. No se crean índices ni se escriben datos. La calidad requiere recorrer
+los pings de los viajes del período; la agregación tiene un límite de 15 segundos.
+Se actualiza al cargar o pulsar Actualizar; no hace polling. No presenta velocidades
+máximas ni suma distancias crudas GPS. Pruebas: `node --test scripts/dashboard.test.mjs`.
+
+El control de velocidad encabeza el dashboard. `server/control/speed-dashboard.ts`
+lee los viajes iniciados en el mismo período y recorre sus pings por cursor,
+ordenados por timestamp e ID, conservando solo el par consecutivo en memoria.
+Reutiliza `routeSpeed` y el límite vigente de Control, también para viajes históricos.
+No usa la velocidad bruta guardada ni persiste infracciones. Cada tramo es un par
+de checkpoints; tramos consecutivos con exceso no se agrupan como un incidente.
+
+Porcentajes: tramos con exceso / evaluados; viajes con exceso / viajes con al menos
+un tramo evaluable; pilotos con exceso / pilotos con al menos un tramo evaluable.
+Denominador cero se muestra como «Sin datos». Los descartes se informan por separado.
+La tabla por piloto agrupa por ID, incluye viajes sin muestras y muestra último
+exceso y porcentaje de tramos. El desglose diario usa la fecha del checkpoint final
+en Guatemala de los viajes seleccionados, aunque un viaje cruce medianoche.
+El detalle conserva los 20 excesos más recientes (inicio, fin, piloto, placa,
+número de tramo, velocidad estimada y porcentaje por encima del límite); este tope
+no limita los totales. Sin límite configurado se ofrece el enlace a Control.
+Pruebas: `node --test scripts/speed-dashboard.test.mjs scripts/route-speed.test.mjs`.
+
+Las tarjetas «Pilotos con exceso» y «Viajes con exceso» abren listas interactivas.
+Conservan todos los viajes afectados del período, independientemente del límite de
+20 eventos recientes. Cada viaje incluye Detalles hacia
+`/camiones?viaje=<id>&tramo=<checkpoint-final>&dias=7|30`.
+Camiones comprueba la sesión de administrador antes de resolver el ID; carga ese
+viaje directamente sin depender de la paginación y abre su mapa con el tramo
+seleccionado. Los eventos recientes enlazan también a su tramo específico.
+Si el viaje no existe se informa; si el tramo ya no supera el límite vigente,
+se muestra el recorrido completo con un aviso. Volver al dashboard conserva el período.
+# Control de velocidad en el mapa
+
+`GET /api/trucks/live` mantiene la autenticación de administrador y añade
+`limiteKmh` (límite vigente o null) y `route` (null o `{tripId,ruta}`). El parámetro
+opcional `?trip=<ObjectId>` devuelve el recorrido completo solo si pertenece a uno
+de los viajes activos de la respuesta, ordenado por timestamp e ID. No carga rutas
+de toda la flota. El cliente consulta cada 5 segundos mientras la pestaña es visible.
+
+`ubicacion.velocidad` ahora es una estimación recalculada entre los dos últimos
+checkpoints con las reglas de `routeSpeed`; los datos insuficientes o dudosos dan
+null. No se cambia el valor persistido. La barra lateral muestra excesos solo con
+ubicaciones de entre 0 y 90 segundos de antigüedad y se desactiva ante errores de
+consulta. El reloj del cliente sigue caducando muestras aunque falle el polling.
+La interfaz explica que el envío cada minuto impide tratarla como velocidad instantánea.
+
+Seleccionar una alerta destaca el camión y encuadra su ruta recibida. El recorrido
+se actualiza en las consultas siguientes sin mover continuamente el mapa. Puede
+reenfocarse o quitarse la selección; desaparece del mapa si termina el viaje.
+El trazado incluye todos los puntos originales, no implica que sean precisos.
+Pruebas: `node --test scripts/live-speed.test.mjs scripts/live-route.test.mjs`.
