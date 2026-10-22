@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { isRecentLocation } from '@/lib/live-trucks';
 import { useLiveTrucks, type LiveTrucksState } from '@/components/use-live-trucks';
+import { Pagination } from '@/components/pagination';
 
 // Leaflet reads `window` on import, so it cannot be prerendered on the server.
 const FleetMap = dynamic(() => import('@/components/fleet-map'), {
@@ -35,6 +36,8 @@ export function MapView() {
   const [selected, setSelected] = useState<string | null>(null);
   const [focus, setFocus] = useState(0);
   const [now, setNow] = useState<number | null>(null);
+  const [plateQuery, setPlateQuery] = useState('');
+  const [requestedPage, setRequestedPage] = useState(1);
   const live = useLiveTrucks(selected);
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -50,20 +53,35 @@ export function MapView() {
     .sort((a, b) => b.ubicacion!.velocidad! - a.ubicacion!.velocidad!);
   const unknown = live.trucks.filter(truck => !truck.ubicacion || clockNow === null ||
     !isRecentLocation(truck.ubicacion.timestamp, clockNow) || truck.ubicacion.velocidad === null).length;
+  const query = plateQuery.trim().toUpperCase();
+  const matches = alerts.filter(truck => truck.placa.toUpperCase().includes(query));
+  const totalPages = Math.max(1, Math.ceil(matches.length / 5));
+  const page = Math.min(requestedPage, totalPages);
+  const visible = matches.slice((page - 1) * 5, page * 5);
   return <>
     <LiveStatus {...live} />
     <div className="live-map-layout">
       <aside className="live-speed-sidebar" aria-labelledby="live-speed-title">
         <h2 id="live-speed-title">Control de velocidad</h2>
         <p className="layer-note">{live.limiteKmh === null ? 'Sin límite configurado.' : `Límite vigente: ${live.limiteKmh} km/h.`} <Link href="/control" className="dashboard-link">Configurar</Link></p>
-        <p className="layer-note">Últimas muestras recibidas, no velocidad instantánea. Captura cada 5 s y envío cada minuto. Se excluyen datos dudosos o de más de 90 s.</p>
-        <p role="status">{live.error ? 'Alertas no disponibles mientras se recupera la conexión.' : live.updatedAt === null ? 'Cargando vehículos…' : live.limiteKmh === null ? 'Configura un límite para detectar excesos.' : `${alerts.length} camiones sobre el límite en la última muestra válida.`}</p>
+        {(live.error || live.updatedAt === null || live.limiteKmh === null) && <p role="status">{live.error ? 'Alertas no disponibles mientras se recupera la conexión.' : live.updatedAt === null ? 'Cargando vehículos…' : 'Configura un límite para detectar excesos.'}</p>}
         {!live.error && unknown > 0 && <p className="layer-note">{unknown} vehículos sin datos recientes suficientes para evaluar.</p>}
-        <ul className="live-speed-list">{alerts.map(truck => <li key={truck.tripId}>
+        <div className="live-plate-search">
+          <label htmlFor="live-plate-query">Buscar placa en las alertas</label>
+          <input id="live-plate-query" type="search" value={plateQuery} placeholder="Ej. PRUEBA o 123" maxLength={40}
+            onChange={event => { setPlateQuery(event.target.value); setRequestedPage(1); }} />
+          {plateQuery && <button type="button" className="dashboard-link" onClick={() => { setPlateQuery(''); setRequestedPage(1); }}>Limpiar búsqueda</button>}
+        </div>
+        {!live.error && live.updatedAt !== null && live.limiteKmh !== null && <p className="layer-note" role="status">
+          {matches.length ? `${(page - 1) * 5 + 1}–${Math.min(page * 5, matches.length)} de ${matches.length} camiones${query ? ' coincidentes' : ''}.`
+            : query ? 'No hay alertas con una placa coincidente.' : 'No hay camiones con exceso reciente.'}
+        </p>}
+        <ul className="live-speed-list">{visible.map(truck => <li key={truck.tripId}>
           <button type="button" aria-pressed={selected === truck.tripId} onClick={() => { setSelected(truck.tripId); setFocus(value => value + 1); }}>
             <strong>{truck.placa} · {truck.ubicacion!.velocidad!.toFixed(1)} km/h</strong><span>{truck.conductor}</span>
             <small>Muestra: {clock.format(new Date(truck.ubicacion!.timestamp))}</small><span>Ver camión y recorrido →</span>
           </button></li>)}</ul>
+        <Pagination page={page} totalPages={totalPages} label="Páginas de alertas de camiones" onChange={setRequestedPage} />
         {selected && <section className="live-selected-trip" aria-label="Viaje seleccionado">
           <h3>{current ? `${current.placa} · ${current.conductor}` : 'Viaje seleccionado'}</h3>
           {!current ? <p>El viaje ya no está activo o no está disponible.</p> : <>

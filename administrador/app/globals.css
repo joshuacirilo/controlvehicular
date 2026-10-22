@@ -286,3 +286,9 @@ body:has(.dashboard-detail-dialog[open]) { overflow: hidden; }
 .truck-marker.is-selected .truck-marker-label { background: var(--brand-blue); outline: 3px solid var(--brand-cyan); }
 .truck-marker.is-selected .truck-marker-dot { width: 22px; height: 22px; }
 @media (max-width: 900px) { .live-map-layout { flex-direction: column; } .live-speed-sidebar { width: 100%; max-height: 35vh; } .live-map-layout .map-frame { min-height: 280px; } .map-page:has(.live-map-layout) { height: auto; min-height: calc(100dvh - 48px); } .live-map-layout .fleet-map { min-height: 400px; } }
+.live-plate-search { display: grid; gap: 8px; }
+.live-plate-search label { font-weight: 600; }
+.live-plate-search input { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); }
+.live-plate-search input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.live-plate-search button { text-align: left; cursor: pointer; }
+.live-speed-sidebar .pagination { flex-wrap: wrap; gap: 8px; }
