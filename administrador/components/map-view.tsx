@@ -1,5 +1,8 @@
 'use client';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { isRecentLocation } from '@/lib/live-trucks';
 import { useLiveTrucks, type LiveTrucksState } from '@/components/use-live-trucks';
 
 // Leaflet reads `window` on import, so it cannot be prerendered on the server.
@@ -29,9 +32,50 @@ function LiveStatus({ trucks, updatedAt, error }: LiveTrucksState) {
 }
 
 export function MapView() {
-  const live = useLiveTrucks();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [focus, setFocus] = useState(0);
+  const [now, setNow] = useState<number | null>(null);
+  const live = useLiveTrucks(selected);
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const clockNow = now ?? live.updatedAt;
+  const current = live.trucks.find(truck => truck.tripId === selected);
+  const route = current && live.route?.tripId === selected ? live.route : null;
+  const alerts = live.error ? [] : live.trucks.filter(truck => truck.ubicacion && clockNow !== null &&
+    isRecentLocation(truck.ubicacion.timestamp, clockNow) && truck.ubicacion.velocidad !== null &&
+    live.limiteKmh !== null && truck.ubicacion.velocidad > live.limiteKmh)
+    .sort((a, b) => b.ubicacion!.velocidad! - a.ubicacion!.velocidad!);
+  const unknown = live.trucks.filter(truck => !truck.ubicacion || clockNow === null ||
+    !isRecentLocation(truck.ubicacion.timestamp, clockNow) || truck.ubicacion.velocidad === null).length;
   return <>
     <LiveStatus {...live} />
-    <div className="map-frame"><FleetMap trucks={live.trucks} now={live.updatedAt} /></div>
+    <div className="live-map-layout">
+      <aside className="live-speed-sidebar" aria-labelledby="live-speed-title">
+        <h2 id="live-speed-title">Control de velocidad</h2>
+        <p className="layer-note">{live.limiteKmh === null ? 'Sin límite configurado.' : `Límite vigente: ${live.limiteKmh} km/h.`} <Link href="/control" className="dashboard-link">Configurar</Link></p>
+        <p className="layer-note">Últimas muestras recibidas, no velocidad instantánea. Captura cada 5 s y envío cada minuto. Se excluyen datos dudosos o de más de 90 s.</p>
+        <p role="status">{live.error ? 'Alertas no disponibles mientras se recupera la conexión.' : live.updatedAt === null ? 'Cargando vehículos…' : live.limiteKmh === null ? 'Configura un límite para detectar excesos.' : `${alerts.length} camiones sobre el límite en la última muestra válida.`}</p>
+        {!live.error && unknown > 0 && <p className="layer-note">{unknown} vehículos sin datos recientes suficientes para evaluar.</p>}
+        <ul className="live-speed-list">{alerts.map(truck => <li key={truck.tripId}>
+          <button type="button" aria-pressed={selected === truck.tripId} onClick={() => { setSelected(truck.tripId); setFocus(value => value + 1); }}>
+            <strong>{truck.placa} · {truck.ubicacion!.velocidad!.toFixed(1)} km/h</strong><span>{truck.conductor}</span>
+            <small>Muestra: {clock.format(new Date(truck.ubicacion!.timestamp))}</small><span>Ver camión y recorrido →</span>
+          </button></li>)}</ul>
+        {selected && <section className="live-selected-trip" aria-label="Viaje seleccionado">
+          <h3>{current ? `${current.placa} · ${current.conductor}` : 'Viaje seleccionado'}</h3>
+          {!current ? <p>El viaje ya no está activo o no está disponible.</p> : <>
+            <p>{route ? `${route.ruta.length} puntos del recorrido recibido.` : live.error ? 'No se pudo actualizar el recorrido.' : 'Cargando recorrido…'}</p>
+            {!alerts.some(truck => truck.tripId === selected) && <p className="layer-note">Este viaje ya no figura entre las alertas recientes. El recorrido permanece seleccionado.</p>}
+            <button type="button" className="pagination-button" onClick={() => setFocus(value => value + 1)}>Enfocar recorrido</button>
+            <Link href={`/camiones?viaje=${selected}`} className="dashboard-link">Detalles del viaje →</Link>
+          </>}
+          <button type="button" className="pagination-button" onClick={() => setSelected(null)}>Quitar selección</button>
+        </section>}
+      </aside>
+      <div className="map-frame"><FleetMap trucks={live.trucks} now={clockNow} selectedTrip={current?.tripId ?? null} route={route} focusRequest={focus} /></div>
+    </div>
   </>;
 }

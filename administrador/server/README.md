@@ -242,3 +242,23 @@ viaje directamente sin depender de la paginación y abre su mapa con el tramo
 seleccionado. Los eventos recientes enlazan también a su tramo específico.
 Si el viaje no existe se informa; si el tramo ya no supera el límite vigente,
 se muestra el recorrido completo con un aviso. Volver al dashboard conserva el período.
+# Control de velocidad en el mapa
+
+`GET /api/trucks/live` mantiene la autenticación de administrador y añade
+`limiteKmh` (límite vigente o null) y `route` (null o `{tripId,ruta}`). El parámetro
+opcional `?trip=<ObjectId>` devuelve el recorrido completo solo si pertenece a uno
+de los viajes activos de la respuesta, ordenado por timestamp e ID. No carga rutas
+de toda la flota. El cliente consulta cada 5 segundos mientras la pestaña es visible.
+
+`ubicacion.velocidad` ahora es una estimación recalculada entre los dos últimos
+checkpoints con las reglas de `routeSpeed`; los datos insuficientes o dudosos dan
+null. No se cambia el valor persistido. La barra lateral muestra excesos solo con
+ubicaciones de entre 0 y 90 segundos de antigüedad y se desactiva ante errores de
+consulta. El reloj del cliente sigue caducando muestras aunque falle el polling.
+La interfaz explica que el envío cada minuto impide tratarla como velocidad instantánea.
+
+Seleccionar una alerta destaca el camión y encuadra su ruta recibida. El recorrido
+se actualiza en las consultas siguientes sin mover continuamente el mapa. Puede
+reenfocarse o quitarse la selección; desaparece del mapa si termina el viaje.
+El trazado incluye todos los puntos originales, no implica que sean precisos.
+Pruebas: `node --test scripts/live-speed.test.mjs scripts/live-route.test.mjs`.

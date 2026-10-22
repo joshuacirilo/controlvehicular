@@ -273,3 +273,16 @@ body:has(.route-dialog[open]) { overflow: hidden; }
 .dashboard-detail-dialog > .dashboard-section { border: 0; box-shadow: none; }
 .dashboard-detail-dialog button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 body:has(.dashboard-detail-dialog[open]) { overflow: hidden; }
+.live-map-layout { display: flex; flex-direction: row-reverse; gap: 16px; flex: 1; min-height: 0; }
+.live-map-layout .map-frame { flex: 1; min-width: 0; }
+.live-speed-sidebar { width: 310px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 18px; background: white; border: 1px solid var(--line); border-radius: 16px; font-size: 14px; }
+.live-speed-sidebar h2, .live-speed-sidebar h3 { color: var(--brand-navy); font-weight: 700; }
+.live-speed-sidebar h2 { font-size: 18px; }
+.live-speed-list { display: grid; gap: 10px; list-style: none; padding: 0; margin: 0; }
+.live-speed-list button { display: grid; gap: 6px; width: 100%; padding: 14px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--danger); border-radius: 10px; cursor: pointer; }
+.live-speed-list button[aria-pressed="true"] { background: var(--brand-tint); border-color: var(--brand-blue); }
+.live-speed-list button:focus-visible, .live-speed-sidebar a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+.live-selected-trip { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.truck-marker.is-selected .truck-marker-label { background: var(--brand-blue); outline: 3px solid var(--brand-cyan); }
+.truck-marker.is-selected .truck-marker-dot { width: 22px; height: 22px; }
+@media (max-width: 900px) { .live-map-layout { flex-direction: column; } .live-speed-sidebar { width: 100%; max-height: 35vh; } .live-map-layout .map-frame { min-height: 280px; } .map-page:has(.live-map-layout) { height: auto; min-height: calc(100dvh - 48px); } .live-map-layout .fleet-map { min-height: 400px; } }

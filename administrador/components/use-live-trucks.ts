@@ -1,9 +1,9 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import type { LiveTruck, LiveTrucksResponse } from '@/lib/live-trucks';
+import type { LiveTruck, LiveTrucksResponse, LiveRoute } from '@/lib/live-trucks';
 
-/** Matches the app's sampling interval, so each refresh can bring a new position. */
+/** Polling is independent of the app's one-minute upload interval. */
 const REFRESH_MS = 5000;
 
 export type LiveTrucksState = {
@@ -11,12 +11,14 @@ export type LiveTrucksState = {
   /** Epoch ms of the last successful refresh; null until the first one. */
   updatedAt: number | null;
   error: string | null;
+  limiteKmh: number | null;
+  route: LiveRoute | null;
 };
 
 /** Polls the live fleet while the tab is visible; keeps the last data when a refresh fails. */
-export function useLiveTrucks(): LiveTrucksState {
+export function useLiveTrucks(selectedTrip: string | null = null): LiveTrucksState {
   const router = useRouter();
-  const [state, setState] = useState<LiveTrucksState>({ trucks: [], updatedAt: null, error: null });
+  const [state, setState] = useState<LiveTrucksState>({ trucks: [], updatedAt: null, error: null, limiteKmh: null, route: null });
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -28,7 +30,7 @@ export function useLiveTrucks(): LiveTrucksState {
       const current = new AbortController();
       controller = current;
       try {
-        const response = await fetch('/api/trucks/live', { cache: 'no-store', signal: current.signal });
+        const response = await fetch(`/api/trucks/live${selectedTrip ? `?trip=${encodeURIComponent(selectedTrip)}` : ''}`, { cache: 'no-store', signal: current.signal });
         if (response.status === 401) {
           router.replace('/');
           return;
@@ -37,7 +39,8 @@ export function useLiveTrucks(): LiveTrucksState {
         if (!response.ok || !Array.isArray(data?.trucks)) {
           throw new Error(data?.message ?? 'No se pudo actualizar el mapa.');
         }
-        setState({ trucks: data.trucks, updatedAt: Date.now(), error: null });
+        if (current.signal.aborted) return;
+        setState({ trucks: data.trucks, updatedAt: Date.now(), error: null, limiteKmh: data.limiteKmh, route: data.route });
       } catch (error) {
         if (current.signal.aborted) return;
         const message = error instanceof TypeError ? 'Sin conexión con el servidor.' : (error as Error).message;
@@ -58,7 +61,7 @@ export function useLiveTrucks(): LiveTrucksState {
       controller?.abort();
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [router]);
+  }, [router, selectedTrip]);
 
   return state;
 }
