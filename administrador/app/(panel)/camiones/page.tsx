@@ -1,18 +1,28 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { DriverTrips } from '@/components/driver-trips';
+import { DriverTrips, RouteCard } from '@/components/driver-trips';
 import { TruckIcon } from '@/components/icons';
 import { Pagination } from '@/components/pagination';
 import { getAdmin } from '@/server/auth/admin';
-import { truckHistoryPage } from '@/server/trucks/history';
+import { truckHistoryPage, selectedTripHistory } from '@/server/trucks/history';
 
 export const metadata: Metadata = { title: 'Camiones | Control vehicular' };
 
 export default async function CamionesPage({ searchParams }: PageProps<'/camiones'>) {
   // Layouts do not re-run on client navigation, so the page authorizes its own data.
   if (!await getAdmin()) redirect('/');
-  const { pagina } = await searchParams;
+  const { pagina, viaje, tramo, dias } = await searchParams;
+  if (viaje !== undefined) {
+    const selected = typeof viaje === 'string' ? await selectedTripHistory(viaje) : null;
+    const segment = typeof tramo === 'string' && /^[1-9]\d{0,8}$/.test(tramo) ? Number(tramo) : undefined;
+    return <div className="trucks-page"><header className="trucks-header"><h1 className="panel-title">Camiones · Detalle del viaje</h1>
+      <Link href={`/dashboard?dias=${dias === '30' ? 30 : 7}`} className="dashboard-link">Volver al dashboard</Link>
+      <Link href="/camiones" className="dashboard-link">Ver todos los camiones</Link></header>
+      {selected ? <><h2>{selected.title}</h2><RouteCard key={`${selected.trip.tripId}-${segment}`} trip={selected.trip} title={selected.title} initiallyExpanded initialSegment={segment} /></>
+        : <p role="alert">El viaje solicitado no existe o ya no está disponible.</p>}
+    </div>;
+  }
   const requested = typeof pagina === 'string' && /^[1-9]\d{0,5}$/.test(pagina) ? Number(pagina) : 1;
   const { page, totalPages, total, trucks } = await truckHistoryPage(requested);
 

@@ -3,18 +3,13 @@ import 'leaflet/dist/leaflet.css';
 import { divIcon, type LatLngTuple } from 'leaflet';
 import { useEffect, useMemo } from 'react';
 import { CircleMarker, MapContainer, Marker, Pane, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
-import { hasQuestionableFix, type CheckpointQuality } from '@/lib/route-quality';
+import { hasQuestionableFix, recordedSpeedLabel, type CheckpointQuality } from '@/lib/route-quality';
 import { returnSections } from '@/lib/route-returns';
 import { RouteDirectionArrows } from '@/components/route-direction-arrows';
 
 const checkpointTime = new Intl.DateTimeFormat('es-GT', {
   timeZone: 'America/Guatemala', dateStyle: 'short', timeStyle: 'medium',
 });
-
-function recordedSpeed(checkpoint: CheckpointQuality | undefined) {
-  const speed = checkpoint?.velocidad;
-  return typeof speed === 'number' && Number.isFinite(speed) && speed >= 0 ? `${speed.toFixed(1)} km/h` : 'No disponible';
-}
 
 // Leaflet measures its container once; inside a dialog that is still zero-sized at creation,
 // so the view is fitted again the first time the container gets a real size.
@@ -89,7 +84,7 @@ export default function RouteMiniMap({ ruta, checkpoints, interactive = false, f
         pathOptions={{ weight: 18, opacity: 0 }}>
         <Popup><strong>Tramo {index + 1}</strong><br />
           Checkpoints {index} → {index + 1}<br />
-          Velocidad registrada al final: <strong>{recordedSpeed(checkpoints[index + 1])}</strong><br />
+          Velocidad registrada al final: <strong>{recordedSpeedLabel(checkpoints[index], checkpoints[index + 1])}</strong><br />
           {checkpoints[index + 1] && checkpointTime.format(new Date(checkpoints[index + 1].timestamp))}
           <p>Valor guardado al recibir el checkpoint final; puede diferir de la velocidad estimada usada para evaluar el límite.</p>
           {(hasQuestionableFix(checkpoints[index]) || hasQuestionableFix(checkpoints[index + 1])) && <p>Este tramo contiene una ubicación dudosa.</p>}
@@ -111,7 +106,7 @@ export default function RouteMiniMap({ ruta, checkpoints, interactive = false, f
         iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -7],
       })}>
       <Popup><strong>Checkpoint {index}</strong><br />
-        Velocidad registrada: <strong>{recordedSpeed(checkpoints[index])}</strong><br />
+        Velocidad registrada: <strong>{recordedSpeedLabel(checkpoints[index - 1], checkpoints[index])}</strong><br />
         Latitud: {position[0].toFixed(6)}<br />Longitud: {position[1].toFixed(6)}<br />
         Precisión reportada: {checkpoints[index]?.precision == null ? 'Desconocida' : `${Math.round(checkpoints[index].precision!)} m`}<br />
         {checkpoints[index] && checkpointTime.format(new Date(checkpoints[index].timestamp))}
@@ -123,7 +118,7 @@ export default function RouteMiniMap({ ruta, checkpoints, interactive = false, f
       <CircleMarker key={index} center={position} radius={6} pane="markerPane"
         pathOptions={{ color: '#0349b9', fillColor: '#ffffff', fillOpacity: 0.9, weight: 2 }}>
         <Popup><strong>Checkpoint {index}</strong><br />
-          Velocidad registrada: <strong>{recordedSpeed(checkpoints[index])}</strong><br />
+          Velocidad registrada: <strong>{recordedSpeedLabel(checkpoints[index - 1], checkpoints[index])}</strong><br />
           {checkpointTime.format(new Date(checkpoints[index].timestamp))}<br />
           Latitud: {position[0].toFixed(6)}<br />Longitud: {position[1].toFixed(6)}<br />
           Precisión reportada: {checkpoints[index].precision} m

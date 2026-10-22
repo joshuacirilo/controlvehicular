@@ -24,8 +24,8 @@ function duration(trip: TripRoute) {
 }
 
 /** Full-size, interactive view of one trip; closes with its button, Escape or a click on the backdrop. */
-function RouteMapDialog({ trip, title, onClose }: { trip: TripRoute; title: string; onClose: () => void }) {
-  const [selected, setSelected] = useState<TripRoute['velocidad']['excesos'][number] | null>(null);
+function RouteMapDialog({ trip, title, onClose, initialSegment }: { trip: TripRoute; title: string; onClose: () => void; initialSegment?: number }) {
+  const [selected, setSelected] = useState<TripRoute['velocidad']['excesos'][number] | null>(() => trip.velocidad.excesos.find(segment => segment.fin === initialSegment) ?? null);
   const speed = trip.velocidad;
   return <dialog className="route-dialog" aria-labelledby={`route-${trip.tripId}`} onClose={onClose}
     ref={node => { if (node && !node.open) node.showModal(); }}
@@ -46,6 +46,7 @@ function RouteMapDialog({ trip, title, onClose }: { trip: TripRoute; title: stri
       <div className="route-dialog-content">
         <aside className="route-speed-sidebar" aria-label="Tramos que superan el límite de velocidad">
           <h4>Excesos de velocidad</h4>
+          {initialSegment !== undefined && !speed.excesos.some(segment => segment.fin === initialSegment) && <p>El tramo solicitado ya no figura como exceso con los datos y el límite actuales. Se muestra el viaje completo.</p>}
           {speed.limiteKmh === null ? <p>Configura un límite en Control para evaluar este recorrido.</p> : <>
             <p><strong>{speed.excesos.length} tramos</strong> sobre el límite vigente de {speed.limiteKmh} km/h.</p>
             <p className="layer-note">Velocidad estimada entre checkpoints consecutivos. {speed.evaluados} tramos evaluados; {speed.sinEvaluar} sin datos válidos suficientes.</p>
@@ -75,9 +76,9 @@ function RouteMapDialog({ trip, title, onClose }: { trip: TripRoute; title: stri
   </dialog>;
 }
 
-function RouteCard({ trip, title }: { trip: TripRoute; title: string }) {
+export function RouteCard({ trip, title, initiallyExpanded = false, initialSegment }: { trip: TripRoute; title: string; initiallyExpanded?: boolean; initialSegment?: number }) {
   const active = trip.estado === 'activo';
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   return <article className="route-card">
     <div className="route-map">
       {trip.ruta.length
@@ -90,7 +91,7 @@ function RouteCard({ trip, title }: { trip: TripRoute; title: string }) {
         </>
         : <div className="route-map-empty">Sin recorrido registrado</div>}
     </div>
-    {expanded && <RouteMapDialog trip={trip} title={title} onClose={() => setExpanded(false)} />}
+    {expanded && <RouteMapDialog trip={trip} title={title} initialSegment={initialSegment} onClose={() => setExpanded(false)} />}
     <div className="route-card-body">
       <span className={`status-badge${active ? ' is-active' : ''}`}>{active ? 'En curso' : 'Finalizado'}</span>
       <dl>

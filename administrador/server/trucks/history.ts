@@ -1,5 +1,5 @@
 import 'server-only';
-import type { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import {
   TRIPS_PER_PAGE, TRUCKS_PER_PAGE, type DriverTripsPage, type TripRoute, type TruckHistoryPage,
 } from '@/lib/truck-history';
@@ -120,11 +120,12 @@ export async function driverTrips(
   truckId: ObjectId,
   driverId: ObjectId,
   requestedPage: number,
+  selectedTrip?: ObjectId,
 ): Promise<Result<DriverTripsPage>> {
   const db = await getDb();
   const trips = db.collection<TripRow>('trips');
   const pings = db.collection<PingRow & { tripId: ObjectId; timestamp: Date }>('locationPings');
-  const filter = { truckId, driverId };
+  const filter = { truckId, driverId, ...(selectedTrip ? { _id: selectedTrip } : {}) };
   const total = await trips.countDocuments(filter);
   const totalPages = pageCount(total, TRIPS_PER_PAGE);
   const page = clampPage(requestedPage, totalPages);
@@ -152,4 +153,19 @@ export async function driverTrips(
   }));
 
   return { ok: true, status: 200, body: { page, totalPages, total, trips: result } };
+}
+
+/** Resolve the exact trip independently of both history pagination levels. Caller authorizes admin access. */
+export async function selectedTripHistory(id: string) {
+  if (!/^[a-fA-F0-9]{24}$/.test(id)) return null;
+  const db = await getDb();
+  const trip = await db.collection<TripRow & { truckId: ObjectId; driverId: ObjectId }>('trips').findOne({ _id: new ObjectId(id) });
+  if (!trip) return null;
+  const [truck, driver, history] = await Promise.all([
+    db.collection('trucks').findOne({ _id: trip.truckId }, { projection: { placa: 1 } }),
+    db.collection('drivers').findOne({ _id: trip.driverId }, { projection: { nombre: 1 } }),
+    driverTrips(trip.truckId, trip.driverId, 1, trip._id),
+  ]);
+  if (!history.ok || !history.body.trips[0]) return null;
+  return { trip: history.body.trips[0], title: `${truck?.placa ?? 'Sin placa'} · ${driver?.nombre ?? 'Sin conductor'}` };
 }
