@@ -25,6 +25,8 @@ function duration(trip: TripRoute) {
 
 /** Full-size, interactive view of one trip; closes with its button, Escape or a click on the backdrop. */
 function RouteMapDialog({ trip, title, onClose }: { trip: TripRoute; title: string; onClose: () => void }) {
+  const [selected, setSelected] = useState<TripRoute['velocidad']['excesos'][number] | null>(null);
+  const speed = trip.velocidad;
   return <dialog className="route-dialog" aria-labelledby={`route-${trip.tripId}`} onClose={onClose}
     ref={node => { if (node && !node.open) node.showModal(); }}
     onClick={event => { if (event.target === event.currentTarget) event.currentTarget.close(); }}>
@@ -41,10 +43,33 @@ function RouteMapDialog({ trip, title, onClose }: { trip: TripRoute; title: stri
           <CloseIcon />
         </button>
       </header>
-      <div className="route-dialog-map"><RouteMiniMap ruta={trip.ruta} checkpoints={trip.checkpoints} interactive /></div>
+      <div className="route-dialog-content">
+        <aside className="route-speed-sidebar" aria-label="Tramos que superan el límite de velocidad">
+          <h4>Excesos de velocidad</h4>
+          {speed.limiteKmh === null ? <p>Configura un límite en Control para evaluar este recorrido.</p> : <>
+            <p><strong>{speed.excesos.length} tramos</strong> sobre el límite vigente de {speed.limiteKmh} km/h.</p>
+            <p className="layer-note">Velocidad estimada entre checkpoints consecutivos. {speed.evaluados} tramos evaluados; {speed.sinEvaluar} sin datos válidos suficientes.</p>
+            {speed.excesos.length === 0 && <p>{speed.evaluados ? 'No se detectaron excesos en los tramos evaluados.' : 'No hay tramos con datos suficientes para evaluar.'}</p>}
+            <ol className="route-speed-list">
+              {speed.excesos.map(segment => <li key={segment.inicio}>
+                <button type="button" aria-pressed={selected?.inicio === segment.inicio}
+                  onClick={() => setSelected({ ...segment })}>
+                  <strong>Tramo {segment.inicio + 1} · {segment.velocidadKmh.toFixed(2)} km/h</strong>
+                  <span>Checkpoints {segment.inicio} → {segment.fin}</span>
+                  <small>{dateTime.format(new Date(trip.checkpoints[segment.inicio].timestamp))}</small>
+                </button>
+              </li>)}
+            </ol>
+          </>}
+          {selected && <button type="button" className="route-speed-reset" onClick={() => setSelected(null)}>Ver recorrido completo</button>}
+          <p role="status" className="sr-only">{selected ? `Tramo ${selected.inicio + 1} seleccionado en rojo: ${selected.velocidadKmh.toFixed(2)} km/h.` : ''}</p>
+        </aside>
+        <div className="route-dialog-map"><RouteMiniMap ruta={trip.ruta} checkpoints={trip.checkpoints} interactive focus={selected} /></div>
+      </div>
       <p className="route-dialog-legend">
+        Rojo: tramo seleccionado que supera el límite.
         Azul: recorrido completo. Morado discontinuo: regreso estimado por un tramo ya recorrido en sentido contrario. Las flechas indican el sentido hacia el siguiente checkpoint.
-        <span className="legend-dot is-uncertain" aria-hidden="true" />Solo se marcan las ubicaciones dudosas en naranja. La línea conecta todos los checkpoints en orden.
+        <span className="legend-dot is-uncertain" aria-hidden="true" />Naranja: ubicaciones dudosas. Toca un checkpoint o un tramo para consultar la velocidad registrada. La línea conecta todos los checkpoints en orden.
       </p>
     </div>
   </dialog>;
@@ -74,6 +99,10 @@ function RouteCard({ trip, title }: { trip: TripRoute; title: string }) {
         <dt>Duración</dt><dd>{duration(trip)}</dd>
         <dt>Distancia estimada</dt><dd>{trip.distanciaKm} km (tramos con señal válida)</dd>
         <dt>Puntos GPS</dt><dd>{trip.puntos}</dd>
+        <dt>Tramos sobre el límite</dt><dd>{trip.velocidad.limiteKmh === null ? 'Sin límite configurado' : <>
+          <strong>{trip.velocidad.excesos.length}</strong> (límite vigente: {trip.velocidad.limiteKmh} km/h)
+          <small className="route-speed-note">{trip.velocidad.evaluados} evaluados · {trip.velocidad.sinEvaluar} sin evaluar</small>
+        </>}</dd>
       </dl>
     </div>
   </article>;

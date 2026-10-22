@@ -38,6 +38,12 @@ export type TripRoute = {
   distanciaKm: number;
   ruta: [number, number][];
   checkpoints: CheckpointQuality[];
+  velocidad: {
+    limiteKmh: number | null;
+    evaluados: number;
+    sinEvaluar: number;
+    excesos: { inicio: number; fin: number; velocidadKmh: number }[];
+  };
 };
 
 /** Served by `GET /api/trucks/:truckId/drivers/:driverId/trips?page=N`. */

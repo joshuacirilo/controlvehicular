@@ -8,6 +8,8 @@ import { formatGuatemala } from '@/server/time';
 import { distanceMeters } from '@/server/trips/pings';
 import { hasUsableAccuracy, MAX_ROUTE_GAP_MS } from '@/lib/route-quality';
 import type { Result } from '@/server/trips/service';
+import { getSpeedControl } from '@/server/control/speed';
+import { routeSpeed } from '@/server/control/route-speed';
 
 type TruckRow = {
   _id: ObjectId;
@@ -19,7 +21,7 @@ type TruckRow = {
 
 type TripRow = { _id: ObjectId; estado: 'activo' | 'finalizado'; inicio: Date; fin: Date | null };
 
-type PingRow = { coords: { coordinates: [number, number] }; precision?: number | null; timestamp: Date; qualityFlags?: string[] };
+type PingRow = { coords: { coordinates: [number, number] }; precision?: number | null; timestamp: Date; qualityFlags?: string[]; velocidad?: number | null };
 
 const pageCount = (total: number, size: number) => Math.max(1, Math.ceil(total / size));
 const clampPage = (page: number, totalPages: number) => Math.min(Math.max(1, page), totalPages);
@@ -109,7 +111,7 @@ function routeSummary(pings: PingRow[]) {
   // Keep every fix in chronological order: its array index is its checkpoint number.
   const ruta = pings
     .map(({ coords: { coordinates: [lng, lat] } }): [number, number] => [lat, lng]);
-  const checkpoints = pings.map(ping => ({ precision: ping.precision ?? null, timestamp: formatGuatemala(ping.timestamp), qualityFlags: ping.qualityFlags ?? [] }));
+  const checkpoints = pings.map(ping => ({ precision: ping.precision ?? null, timestamp: formatGuatemala(ping.timestamp), qualityFlags: ping.qualityFlags ?? [], velocidad: ping.velocidad ?? null }));
   return { distanciaKm: Math.round(meters / 100) / 10, ruta, checkpoints };
 }
 
@@ -132,17 +134,20 @@ export async function driverTrips(
     .limit(TRIPS_PER_PAGE)
     .toArray();
 
+  const control = await getSpeedControl();
   const result: TripRoute[] = await Promise.all(rows.map(async trip => {
-    const tripPings = await pings.find({ tripId: trip._id }, { projection: { _id: 0, coords: 1, precision: 1, timestamp: 1, qualityFlags: 1 } })
+    const tripPings = await pings.find({ tripId: trip._id }, { projection: { _id: 0, coords: 1, precision: 1, timestamp: 1, qualityFlags: 1, velocidad: 1 } })
       .sort({ timestamp: 1, _id: 1 })
       .toArray();
+    const summary = routeSummary(tripPings);
     return {
       tripId: trip._id.toHexString(),
       estado: trip.estado,
       inicio: formatGuatemala(trip.inicio),
       fin: trip.fin ? formatGuatemala(trip.fin) : null,
       puntos: tripPings.length,
-      ...routeSummary(tripPings),
+      ...summary,
+      velocidad: routeSpeed(summary.ruta, summary.checkpoints, control?.velocidadPromedio ?? null),
     };
   }));
 

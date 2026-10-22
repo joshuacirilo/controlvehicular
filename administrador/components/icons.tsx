@@ -14,6 +14,10 @@ export function MapIcon() {
   return <Icon><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5L9 4Z" /><path d="M9 4v13.5M15 6.5V20" /></Icon>;
 }
 
+export function ControlIcon() {
+  return <Icon><path d="M4 19a9 9 0 1 1 16 0H4Z" /><path d="m12 13 4-5M5 13h1M12 5v1M18 13h1" /><circle cx="12" cy="13" r="1" /></Icon>;
+}
+
 export function TruckIcon() {
   return <Icon><path d="M2 6.5A1.5 1.5 0 0 1 3.5 5H14v11H2V6.5Z" /><path d="M14 9h4l3 3.5V16h-7V9Z" />
     <circle cx="6.5" cy="17.5" r="2" /><circle cx="17.5" cy="17.5" r="2" /></Icon>;

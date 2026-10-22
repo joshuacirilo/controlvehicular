@@ -2,7 +2,7 @@
 export const MAX_ROUTE_ACCURACY_METERS = 50;
 export const MAX_ROUTE_GAP_MS = 30_000;
 
-export type CheckpointQuality = { precision: number | null; timestamp: string; qualityFlags?: string[] };
+export type CheckpointQuality = { precision: number | null; timestamp: string; qualityFlags?: string[]; velocidad?: number | null };
 
 export function hasQuestionableFix(checkpoint: CheckpointQuality | undefined) {
   return !hasUsableAccuracy(checkpoint?.precision) ||
