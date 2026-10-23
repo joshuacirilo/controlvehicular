@@ -122,7 +122,8 @@ export async function processTripNotifications(tripId: ObjectId) {
 export async function listIncidents() {
   const rows = await (await incidents()).find({}).sort({ acknowledgedAt: 1, priority: -1, createdAt: -1 }).limit(100).toArray();
   return rows.map(row => ({ id: row._id, type: row.type, driver: row.driver, plate: row.plate, location: row.location,
-    eventDate: row.eventDate, tripId: row.tripId.toHexString(), mail: row.mail, acknowledged: Boolean(row.acknowledgedAt) }));
+    eventDate: row.eventDate, tripId: row.tripId.toHexString(), mail: row.mail, acknowledged: Boolean(row.acknowledgedAt),
+    speed: row.speed ?? null, limit: row.limit ?? null }));
 }
 
 export async function acknowledgeIncident(id: unknown, adminId: string) {

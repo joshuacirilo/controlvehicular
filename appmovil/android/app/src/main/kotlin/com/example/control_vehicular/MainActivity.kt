@@ -74,6 +74,7 @@ class MainActivity : FlutterActivity() {
     override fun provideFlutterEngine(context: Context): FlutterEngine {
         val cache = FlutterEngineCache.getInstance()
         return cache.get(ENGINE_ID) ?: FlutterEngine(context.applicationContext).also {
+            LocalNotifications.register(it, context.applicationContext)
             it.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
             cache.put(ENGINE_ID, it)
         }

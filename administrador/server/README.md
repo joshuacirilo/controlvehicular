@@ -3,6 +3,10 @@
 La configuración de correos del panel está documentada en
 [Notificaciones por EmailJS](notifications/README.md).
 
+La asignación de viajes (panel `/asignar`, colección `tripAssignments`,
+`/api/assignments/**` y el campo `assignment` de `trips/start` y `trips/active`)
+está documentada en [Asignar viaje](assignments/README.md).
+
 Las credenciales locales viven en administrador/.env.local, excluido de Git.
 Para otro equipo, copiar administrador/.env.example a administrador/.env.local
  y completar MONGODB_URI. En producción usar los secretos del hosting.
@@ -111,7 +115,31 @@ estos campos directamente debe tratarlos como hora de Guatemala, no como UTC.
 | POST /api/trips/start | `{placa, password, ping?}` del QR del camion (obligatorio) | 201 viaje nuevo o 200 si ya estaba activo con ese camión: `{tripId, inicio, resumed, truck:{placa, modelo}}` |
 | POST /api/trips/:id/ping | `{pings:[...]}` (1 a 100) | `{estado, accepted:[pingId], rejected:[{pingId, reason}], latest:{velocidad, timestamp}}` |
 | POST /api/trips/:id/end | — | `{tripId, estado:'finalizado', fin}`; repetirlo devuelve el mismo `fin` |
-| GET /api/trips/active | — | `{trip:{tripId, inicio, truck:{placa, modelo}} \| null}`: viaje activo del conductor, para reanudarlo al reabrir la app sin el QR |
+| GET /api/trips/active | — | `{trip:{tripId, inicio, truck:{placa, modelo}, pausadoDesde} \| null}`: viaje activo del conductor, para reanudarlo al reabrir la app sin el QR |
+| POST /api/trips/:id/pause | — | `{tripId, pausado:true, pausadoDesde}`; repetirlo devuelve la misma pausa |
+| POST /api/trips/:id/resume | — | `{tripId, pausado:false, pausadoDesde:null}`; idempotente |
+| POST /api/trips/:id/pause-movement | `{velocidadKmh}` (0 a 300) | `{tripId, registrado:true}`; 409 si el viaje no está en pausa |
+
+### Pausar viaje
+
+`trips.pausadoDesde` (hora de Guatemala) marca la pausa y `trips.pausaMovimientoAt`
+el primer movimiento detectado por la app durante ella; ambos vuelven a `null` al
+reanudar o cerrar. Cada pausa queda en la colección nueva `tripPauses`
+`{tripId, driverId, truckId, inicio, fin, movimientoAt, velocidadKmh}`, también en hora
+de Guatemala; `fin` es `null` mientras sigue abierta. `trips/start` (al retomar) y
+`trips/active` devuelven `pausadoDesde`. Cerrar el viaje (`end`) cierra la pausa abierta
+en cada reintento. Pausar o reanudar un viaje terminado: 409; ajeno o inexistente: 404.
+El servidor sigue aceptando pings durante la pausa; es la app la que deja de enviarlos.
+
+La app sigue leyendo el GPS solo para detectar movimiento: esas ubicaciones no se
+guardan ni se envían. Con 2 lecturas seguidas de al menos 10 km/h (límite inferior
+según la precisión de velocidad del GPS, o distancia menos precisiones) muestra un
+aviso, lanza una notificación local cada 5 minutos como máximo (canal Android
+`trip_pause`) y reporta `pause-movement` una vez por pausa. Pausar requiere conexión;
+reanudar se aplica de inmediato en el teléfono y se reintenta con el servidor en cada
+ciclo de envío. No se crearon índices ni se cambiaron validadores; si se consulta
+`tripPauses` por viaje conviene un índice `{tripId:1, fin:1}`.
+Pruebas: `node --test scripts/trip-pause.test.mjs`; Flutter `test/trip_pause_test.dart`.
 
 Cada ping es `{pingId, latitude, longitude, accuracy, timestamp}`. `pingId` (8 a 100
 caracteres `[A-Za-z0-9_-]`) debe conservarse al reintentar: el indice unico
@@ -171,12 +199,15 @@ viajes activos con su ultima posicion:
 
 ```text
 {"trucks":[{"tripId","truckId","placa","modelo","conductor","inicio",
-  "ubicacion":{"lat","lng","velocidad","precision","timestamp"} | null}]}
+  "ubicacion":{"lat","lng","velocidad","precision","timestamp"} | null,
+  "pausa":{"desde","movimiento" | null} | null}]}
 ```
 
 `ubicacion` es `null` hasta que llega el primer ping. Las fechas llevan `-06:00`.
 La vista `/mapa` consulta esta ruta cada 5 s mientras la pestaña esta visible y
-muestra en gris los camiones cuyo ultimo ping tiene mas de 60 s.
+muestra en gris los camiones cuyo ultimo ping tiene mas de 60 s. Un viaje en pausa
+se marca en ámbar con "En pausa" (rojo si se detectó movimiento durante la pausa) y
+la barra lateral lista los camiones con movimiento estando en pausa.
 
 ## Historial por camion y piloto (panel)
 
@@ -265,6 +296,18 @@ null. No se cambia el valor persistido. La barra lateral muestra excesos solo co
 ubicaciones de entre 0 y 90 segundos de antigüedad y se desactiva ante errores de
 consulta. El reloj del cliente sigue caducando muestras aunque falle el polling.
 La interfaz explica que el envío cada minuto impide tratarla como velocidad instantánea.
+
+Con la misma regla (muestra de menos de 90 s y velocidad estrictamente mayor que el
+límite), el marcador del camión se pinta en rojo con la velocidad en la etiqueta y el
+popup indica "Exceso de velocidad: X km/h (límite Y km/h)".
+
+SOS en el mapa: cada camión trae `sos: {id, desde} | null` (incidente de `trips.sosId`
+sin `acknowledgedAt`; `desde` en UTC ISO) y la respuesta incluye `sosRoutes: [{tripId, ruta}]`
+con la ruta completa de esos viajes en cada consulta, sin seleccionarlos (máximo 10). El
+marcador pasa a rojo con pulso y etiqueta "SOS", la ruta se dibuja en rojo, el mapa encuadra
+una vez cada SOS nuevo y la barra lateral muestra el aviso "SOS · Emergencia" con "Ver en
+el mapa". Todo desaparece al marcar el SOS como atendido en Notificaciones. El aviso global
+de SOS enlaza también a `/mapa`.
 
 Seleccionar una alerta destaca el camión y encuadra su ruta recibida. El recorrido
 se actualiza en las consultas siguientes sin mover continuamente el mapa. Puede

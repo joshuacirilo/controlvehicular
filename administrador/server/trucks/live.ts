@@ -11,8 +11,11 @@ type LiveRow = {
   _id: ObjectId;
   truckId: ObjectId;
   inicio: Date;
+  pausadoDesde?: Date | null;
+  pausaMovimientoAt?: Date | null;
   truck?: { placa: string; modelo: string };
   driver?: { nombre: string };
+  sos?: { _id: string; createdAt: Date };
   ping?: {
     coords: { coordinates: [number, number] };
     velocidad: number | null;
@@ -50,9 +53,15 @@ export async function liveTrucks(selectedTrip?: string): Promise<Result<LiveTruc
       },
     },
     {
+      $lookup: {
+        from: 'notificationIncidents', localField: 'sosId', foreignField: '_id', as: 'sos',
+        pipeline: [{ $match: { acknowledgedAt: { $exists: false } } }, { $project: { _id: 1, createdAt: 1 } }],
+      },
+    },
+    {
       $project: {
-        truckId: 1, inicio: 1, recent: '$ping',
-        truck: { $first: '$truck' }, driver: { $first: '$driver' }, ping: { $first: '$ping' },
+        truckId: 1, inicio: 1, pausadoDesde: 1, pausaMovimientoAt: 1, recent: '$ping',
+        truck: { $first: '$truck' }, driver: { $first: '$driver' }, ping: { $first: '$ping' }, sos: { $first: '$sos' },
       },
     },
   ]).toArray();
@@ -73,15 +82,35 @@ export async function liveTrucks(selectedTrip?: string): Promise<Result<LiveTruc
         timestamp: formatGuatemala(row.ping.timestamp),
       }
       : null,
+    pausa: row.pausadoDesde
+      ? {
+        desde: formatGuatemala(row.pausadoDesde),
+        movimiento: row.pausaMovimientoAt ? formatGuatemala(row.pausaMovimientoAt) : null,
+      }
+      : null,
+    sos: row.sos ? { id: row.sos._id, desde: row.sos.createdAt.toISOString() } : null,
   })).sort((a, b) => a.placa.localeCompare(b.placa));
 
-  let route: LiveRoute | null = null;
+  const routes = new Map<string, Promise<LiveRoute>>();
+  const routeOf = (tripId: ObjectId) => {
+    const key = tripId.toHexString();
+    if (!routes.has(key)) routes.set(key, fullRoute(tripId));
+    return routes.get(key)!;
+  };
   const selected = rows.find(row => row._id.toHexString() === selectedTrip);
-  if (selected) {
-    const points = await (await getDb()).collection<LivePing & { tripId: ObjectId }>('locationPings')
-      .find({ tripId: selected._id }, { projection: { coords: 1 }, maxTimeMS: 15000 })
-      .sort({ timestamp: 1, _id: 1 }).toArray();
-    route = { tripId: selected._id.toHexString(), ruta: points.map(p => [p.coords.coordinates[1], p.coords.coordinates[0]]) };
-  }
-  return { ok: true, status: 200, body: { trucks, limiteKmh: control?.velocidadPromedio ?? null, route } };
+  const [route, sosRoutes] = await Promise.all([
+    selected ? routeOf(selected._id) : null,
+    Promise.all(rows.filter(row => row.sos).slice(0, MAX_SOS_ROUTES).map(row => routeOf(row._id))),
+  ]);
+  return { ok: true, status: 200, body: { trucks, limiteKmh: control?.velocidadPromedio ?? null, route, sosRoutes } };
+}
+
+/** Bounds the work of each 5 s refresh if many emergencies are open at once. */
+const MAX_SOS_ROUTES = 10;
+
+async function fullRoute(tripId: ObjectId): Promise<LiveRoute> {
+  const points = await (await getDb()).collection<LivePing & { tripId: ObjectId }>('locationPings')
+    .find({ tripId }, { projection: { coords: 1 }, maxTimeMS: 15000 })
+    .sort({ timestamp: 1, _id: 1 }).toArray();
+  return { tripId: tripId.toHexString(), ruta: points.map(p => [p.coords.coordinates[1], p.coords.coordinates[0]]) };
 }

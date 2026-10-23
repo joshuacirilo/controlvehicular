@@ -3,12 +3,13 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { AccountsIcon, ControlIcon, DashboardIcon, LogoutIcon, MapIcon, TruckIcon, MailIcon } from '@/components/icons';
+import { AccountsIcon, AssignIcon, ControlIcon, DashboardIcon, LogoutIcon, MapIcon, TruckIcon, MailIcon } from '@/components/icons';
 
 const links = [
   { href: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
   { href: '/mapa', label: 'Mapa', icon: MapIcon },
   { href: '/camiones', label: 'Camiones', icon: TruckIcon },
+  { href: '/asignar', label: 'Asignar viaje', icon: AssignIcon },
   { href: '/control', label: 'Control', icon: ControlIcon },
   { href: '/notificaciones', label: 'Notificaciones', icon: MailIcon },
   { href: '/cuentas', label: 'Control de cuentas', icon: AccountsIcon },

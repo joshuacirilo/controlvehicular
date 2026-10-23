@@ -213,6 +213,27 @@ body:has(.route-dialog[open]) { overflow: hidden; }
 .pagination-button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .pagination-status { font-size: 13px; color: var(--muted); }
 
+.assign-page { max-width: 1040px; }
+.account-fields :is(select, textarea) { width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; background: white; font: inherit; }
+.account-card :is(select, textarea):focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+.assign-note { grid-column: 1 / -1; }
+.assign-coords { font-weight: 400; color: var(--muted); }
+.assign-map-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.assign-map-header .pagination-button:disabled { color: #94a3b8; cursor: default; }
+.assign-map { height: 420px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; }
+.assign-marker-icon { background: transparent; border: 0; }
+.assign-marker { display: grid; place-items: center; width: 30px; height: 30px; box-sizing: border-box; border: 3px solid #fff; border-radius: 50%;
+  font-size: 13px; font-weight: 800; box-shadow: 0 2px 8px #0006; cursor: grab; }
+.assign-marker.is-origen { background: var(--brand-teal); color: var(--brand-navy); }
+.assign-marker.is-destino { background: var(--brand-navy); color: #fff; }
+.assign-success { margin-top: 12px; color: #05603a; font-weight: 600; }
+.assign-list { display: grid; gap: 12px; margin: 16px 0; padding: 0; list-style: none; }
+.assign-item { display: grid; gap: 6px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; font-size: 14px; overflow-wrap: anywhere; }
+.assign-item-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--brand-navy); }
+.assign-actions { justify-content: flex-start; margin-top: 4px; }
+.assign-actions button:disabled { opacity: .6; cursor: wait; }
+@media (max-width: 600px) { .assign-map { height: 320px; } }
+
 @media (max-width: 768px) {
   .sidebar { width: 68px; padding: 20px 10px; }
   .truck-layer { padding: 14px; }
@@ -283,8 +304,31 @@ body:has(.dashboard-detail-dialog[open]) { overflow: hidden; }
 .live-speed-list button[aria-pressed="true"] { background: var(--brand-tint); border-color: var(--brand-blue); }
 .live-speed-list button:focus-visible, .live-speed-sidebar a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 .live-selected-trip { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.truck-marker.is-paused .truck-marker-label, .truck-marker.is-paused .truck-marker-dot { background: #b54708; }
+.truck-marker.is-paused .truck-marker-dot { box-shadow: 0 0 0 2px #fdb022, 0 2px 6px rgb(15 23 42 / 0.4); }
+.truck-marker.is-paused-moving .truck-marker-label, .truck-marker.is-paused-moving .truck-marker-dot { background: var(--danger); }
+.truck-marker.is-paused-moving .truck-marker-dot { box-shadow: 0 0 0 3px #fecdca, 0 2px 8px rgb(217 45 32 / 0.6); }
+.truck-popup-pause { margin: 6px 0; color: #b54708; }
+.live-pause-alert { display: grid; gap: 8px; padding: 14px; border: 1px solid #fecdca; border-left: 4px solid var(--danger); border-radius: 10px; background: #fef3f2; }
+.live-pause-alert h2 { font-size: 16px; color: var(--danger); }
+.live-pause-alert ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .truck-marker.is-selected .truck-marker-label { background: var(--brand-blue); outline: 3px solid var(--brand-cyan); }
 .truck-marker.is-selected .truck-marker-dot { width: 22px; height: 22px; }
+.truck-marker.is-speeding .truck-marker-label, .truck-marker.is-speeding .truck-marker-dot { background: var(--danger); }
+.truck-marker.is-speeding .truck-marker-dot { box-shadow: 0 0 0 3px #fecdca, 0 2px 8px rgb(217 45 32 / 0.6); }
+.truck-popup-speeding { margin: 6px 0; color: var(--danger); font-weight: 700; }
+.truck-marker.is-sos .truck-marker-label, .truck-marker.is-sos .truck-marker-dot { background: #b91c1c; }
+.truck-marker.is-sos .truck-marker-dot { width: 22px; height: 22px; box-shadow: 0 0 0 3px #fecaca, 0 2px 10px rgb(185 28 28 / 0.7); animation: sos-pulse 1.2s ease-in-out infinite; }
+@keyframes sos-pulse { 50% { box-shadow: 0 0 0 10px rgb(254 202 202 / 0.35), 0 2px 10px rgb(185 28 28 / 0.7); } }
+@media (prefers-reduced-motion: reduce) { .truck-marker.is-sos .truck-marker-dot { animation: none; } }
+.truck-popup-sos { margin: 6px 0; color: #b91c1c; font-weight: 700; }
+.live-sos-alert { display: grid; gap: 8px; padding: 14px; border: 2px solid #b91c1c; border-radius: 10px; background: #fff1f2; color: #881337; }
+.live-sos-alert h2 { font-size: 16px; color: #b91c1c; }
+.live-sos-alert ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.live-sos-alert li { display: grid; gap: 4px; justify-items: start; }
+.incident-speed { margin: 12px 0; padding: 16px; border: 2px solid var(--danger); border-radius: 12px; background: #fef3f2; color: #7a271a; overflow-wrap: anywhere; }
+.incident-speed ul { display: grid; gap: 6px; margin: 8px 0; padding: 0; list-style: none; }
+.incident-speed li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 @media (max-width: 900px) { .live-map-layout { flex-direction: column; } .live-speed-sidebar { width: 100%; max-height: 35vh; } .live-map-layout .map-frame { min-height: 280px; } .map-page:has(.live-map-layout) { height: auto; min-height: calc(100dvh - 48px); } .live-map-layout .fleet-map { min-height: 400px; } }
 .live-plate-search { display: grid; gap: 8px; }
 .live-plate-search label { font-weight: 600; }

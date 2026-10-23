@@ -17,7 +17,7 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier, context);
 } });
 const { advanceMotion } = await import('../server/notifications/incident-rules.ts');
-const { evaluateTripIncidents, createSos, dispatchIncident } = await import('../server/notifications/incidents.ts');
+const { evaluateTripIncidents, createSos, dispatchIncident, listIncidents } = await import('../server/notifications/incidents.ts');
 const { requestPasswordReset, completePasswordReset } = await import('../server/auth/password-reset.ts');
 const { verifyPassword } = await import('../server/auth/password.ts');
 const { hashPassword } = await import('../server/auth/password.ts');
@@ -116,6 +116,8 @@ test('GPS integration persists one event across repeated and concurrent evaluati
   tables.locationPings=[{...point(0),timestamp:new Date(end-5000),tripId},{...point(5,.001),timestamp:new Date(end),tripId}];
   await Promise.all([evaluateTripIncidents(tripId),evaluateTripIncidents(tripId)]);
   assert.equal(tables.notificationIncidents.length,1);
+  const [listed]=await listIncidents();
+  assert.equal(listed.type,'speed');assert.equal(listed.limit,60);assert.ok(listed.speed>60);assert.equal(listed.acknowledged,false);
   await dispatchIncident();assert.equal(sent.length,1);assert.equal(sent[0].template_id,'fake-NOTIFICATION_TEMPLATE_ID');
   assert.equal(sent[0].template_params.to_email,'admin@example.invalid');
   assert.equal(sent[0].template_params.action_url,`https://fleet.example.invalid/camiones?viaje=${tripId}`);

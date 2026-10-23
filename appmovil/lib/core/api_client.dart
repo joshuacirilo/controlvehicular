@@ -105,7 +105,7 @@ class ApiClient {
     if (data['tripId'] is! String || info is! Map || info['placa'] is! String) {
       throw const ApiException('Respuesta del servidor inesperada.');
     }
-    return _tripInfo(data['tripId'] as String, info, data['inicio']);
+    return _tripInfo(data['tripId'] as String, info, data);
   }
 
   /// The pilot's active trip on the server, or null when there is none.
@@ -119,21 +119,81 @@ class ApiClient {
         trip['truck']['placa'] is! String) {
       throw const ApiException('Respuesta del servidor inesperada.');
     }
-    return _tripInfo(
-      trip['tripId'] as String,
-      trip['truck'] as Map,
-      trip['inicio'],
-    );
+    return _tripInfo(trip['tripId'] as String, trip['truck'] as Map, trip);
   }
+
+  /// Pauses the trip on the server and returns since when it is paused.
+  Future<DateTime> pauseTrip(String token, String tripId) async {
+    final data = await _post(
+      'trips/${Uri.encodeComponent(tripId)}/pause',
+      token,
+      const {},
+    );
+    final since = data['pausadoDesde'] is String
+        ? DateTime.tryParse(data['pausadoDesde'] as String)
+        : null;
+    if (data['pausado'] != true || since == null) {
+      throw const ApiException('El servidor no confirmó la pausa.');
+    }
+    return since;
+  }
+
+  Future<void> resumeTrip(String token, String tripId) async {
+    final data = await _post(
+      'trips/${Uri.encodeComponent(tripId)}/resume',
+      token,
+      const {},
+    );
+    if (data['pausado'] != false) {
+      throw const ApiException('El servidor no confirmó la reanudación.');
+    }
+  }
+
+  /// Tells the server the vehicle moved at [speedKmh] while the trip was paused.
+  Future<void> reportPausedMovement(
+    String token,
+    String tripId,
+    double speedKmh,
+  ) => _post('trips/${Uri.encodeComponent(tripId)}/pause-movement', token, {
+    'velocidadKmh': speedKmh,
+  });
+
+  /// Trips assigned to the pilot by an administrator, pending or in progress.
+  Future<List<TripAssignment>> assignments(String token) async {
+    final data = await _send('GET', 'assignments/mine', token);
+    final items = data['assignments'];
+    if (items is! List) {
+      throw const ApiException('Respuesta del servidor inesperada.');
+    }
+    return items
+        .map(TripAssignment.fromJson)
+        .whereType<TripAssignment>()
+        .toList();
+  }
+
+  /// Tells the server that the app received ([AssignmentMark.delivered]) or
+  /// the pilot opened ([AssignmentMark.read]) the assignment.
+  Future<void> markAssignment(String token, String id, AssignmentMark mark) =>
+      _post(
+        'assignments/${Uri.encodeComponent(id)}/${mark.name}',
+        token,
+        const {},
+      );
 
   /// Revokes the session on the server, on every device of the pilot.
   Future<void> logout(String token) => _post('auth/logout', token, const {});
 
-  TripInfo _tripInfo(String id, Map truck, Object? startedAt) => TripInfo(
+  TripInfo _tripInfo(String id, Map truck, Map trip) => TripInfo(
     id: id,
     plate: truck['placa'] as String,
     model: truck['modelo'] is String ? truck['modelo'] as String : '',
-    startedAt: startedAt is String ? DateTime.tryParse(startedAt) : null,
+    startedAt: trip['inicio'] is String
+        ? DateTime.tryParse(trip['inicio'] as String)
+        : null,
+    assignment: TripAssignment.fromJson(trip['assignment']),
+    pausedSince: trip['pausadoDesde'] is String
+        ? DateTime.tryParse(trip['pausadoDesde'] as String)
+        : null,
   );
 
   Future<PingResult> sendPings(
@@ -167,9 +227,15 @@ class ApiClient {
   }
 
   Future<void> sendSos(String token, String tripId) async {
-    final data = await _post('trips/${Uri.encodeComponent(tripId)}/sos', token, const {});
+    final data = await _post(
+      'trips/${Uri.encodeComponent(tripId)}/sos',
+      token,
+      const {},
+    );
     if (data['recorded'] != true) {
-      throw const ApiException('No se confirmó el SOS. Contacta a tu central por teléfono.');
+      throw const ApiException(
+        'No se confirmó el SOS. Contacta a tu central por teléfono.',
+      );
     }
   }
 
@@ -241,6 +307,8 @@ class TripInfo {
     required this.plate,
     required this.model,
     this.startedAt,
+    this.assignment,
+    this.pausedSince,
   });
   final String id;
   final String plate;
@@ -249,8 +317,127 @@ class TripInfo {
   /// Start of the trip as a real instant; null when the server did not send it.
   final DateTime? startedAt;
 
-  TripInfo withStart(DateTime startedAt) =>
-      TripInfo(id: id, plate: plate, model: model, startedAt: startedAt);
+  /// Assignment this trip fulfills, when the scanned truck matched one.
+  final TripAssignment? assignment;
+
+  /// Set while the pilot has the trip paused; no locations are recorded then.
+  final DateTime? pausedSince;
+
+  TripInfo withStart(DateTime startedAt) => TripInfo(
+    id: id,
+    plate: plate,
+    model: model,
+    startedAt: startedAt,
+    assignment: assignment,
+    pausedSince: pausedSince,
+  );
+
+  TripInfo withPause(DateTime? since) => TripInfo(
+    id: id,
+    plate: plate,
+    model: model,
+    startedAt: startedAt,
+    assignment: assignment,
+    pausedSince: since,
+  );
+}
+
+enum AssignmentMark { delivered, read }
+
+class AssignmentPlace {
+  const AssignmentPlace(this.latitude, this.longitude, this.name);
+  final double latitude;
+  final double longitude;
+  final String name;
+
+  String get coordinates =>
+      '${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}';
+  String get label => name.isEmpty ? coordinates : name;
+
+  static AssignmentPlace? fromJson(Object? json) {
+    if (json is! Map || json['lat'] is! num || json['lng'] is! num) return null;
+    return AssignmentPlace(
+      (json['lat'] as num).toDouble(),
+      (json['lng'] as num).toDouble(),
+      json['nombre'] is String ? json['nombre'] as String : '',
+    );
+  }
+}
+
+/// A trip an administrator assigned to the pilot: truck, origin, destination
+/// and departure time.
+class TripAssignment {
+  const TripAssignment({
+    required this.id,
+    required this.plate,
+    required this.model,
+    required this.origin,
+    required this.destination,
+    required this.scheduledAt,
+    required this.note,
+    required this.status,
+    required this.delivered,
+    required this.read,
+  });
+  final String id;
+  final String plate;
+  final String model;
+  final AssignmentPlace origin;
+  final AssignmentPlace destination;
+  final DateTime scheduledAt;
+  final String note;
+
+  /// `pendiente` or `en_curso`.
+  final String status;
+  final bool delivered;
+  final bool read;
+
+  bool get pending => status == 'pendiente';
+
+  TripAssignment copyWith({bool? delivered, bool? read}) => TripAssignment(
+    id: id,
+    plate: plate,
+    model: model,
+    origin: origin,
+    destination: destination,
+    scheduledAt: scheduledAt,
+    note: note,
+    status: status,
+    delivered: delivered ?? this.delivered,
+    read: read ?? this.read,
+  );
+
+  /// Null when [json] is missing or malformed.
+  static TripAssignment? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final truck = json['truck'];
+    final origin = AssignmentPlace.fromJson(json['origen']);
+    final destination = AssignmentPlace.fromJson(json['destino']);
+    final scheduledAt = json['programadoPara'] is String
+        ? DateTime.tryParse(json['programadoPara'] as String)
+        : null;
+    if (json['id'] is! String ||
+        truck is! Map ||
+        truck['placa'] is! String ||
+        origin == null ||
+        destination == null ||
+        scheduledAt == null ||
+        json['estado'] is! String) {
+      return null;
+    }
+    return TripAssignment(
+      id: json['id'] as String,
+      plate: truck['placa'] as String,
+      model: truck['modelo'] is String ? truck['modelo'] as String : '',
+      origin: origin,
+      destination: destination,
+      scheduledAt: scheduledAt,
+      note: json['nota'] is String ? json['nota'] as String : '',
+      status: json['estado'] as String,
+      delivered: json['entregada'] == true,
+      read: json['leida'] == true,
+    );
+  }
 }
 
 /// One device location sample. [id] stays the same across retries so the

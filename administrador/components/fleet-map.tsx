@@ -1,6 +1,7 @@
 'use client';
 import 'leaflet/dist/leaflet.css';
 import { divIcon, type LatLngBoundsExpression, type LatLngTuple } from 'leaflet';
+import Link from 'next/link';
 import { useEffect, useMemo, useRef } from 'react';
 import { MapContainer, Marker, Popup, Polyline, TileLayer, useMap } from 'react-leaflet';
 import { isRecentLocation, type LiveTruck, type TruckLocation, type LiveRoute } from '@/lib/live-trucks';
@@ -42,21 +43,38 @@ function FitFirstPositions({ points }: { points: LatLngTuple[] }) {
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, char => `&#${char.charCodeAt(0)};`);
 
-function TruckMarker({ truck, stale, selected }: { truck: LocatedTruck; stale: boolean; selected: boolean }) {
+function TruckMarker({ truck, stale, selected, limiteKmh }: { truck: LocatedTruck; stale: boolean; selected: boolean; limiteKmh: number | null }) {
   const { lat, lng, velocidad, precision, timestamp } = truck.ubicacion;
+  const paused = truck.pausa !== null;
+  const movingWhilePaused = Boolean(truck.pausa?.movimiento);
+  // Same rule as the speed alerts list: a recent sample strictly above the limit.
+  const speeding = !stale && velocidad !== null && limiteKmh !== null && velocidad > limiteKmh;
+  const sos = truck.sos !== null;
+  const speedLabel = speeding ? ` · ${velocidad.toFixed(0)} km/h` : '';
+  const state = sos ? ' is-sos' : speeding ? ' is-speeding' : paused ? movingWhilePaused ? ' is-paused-moving' : ' is-paused' : stale ? ' is-stale' : '';
   // Built from HTML so no image assets are needed (Leaflet's default icon breaks with bundlers).
   const icon = useMemo(() => divIcon({
     className: 'truck-marker-icon',
     iconSize: [0, 0],
-    html: `<span class="truck-marker${stale ? ' is-stale' : ''}${selected ? ' is-selected' : ''}">` +
-      `<span class="truck-marker-label">${escapeHtml(truck.placa)}</span><span class="truck-marker-dot"></span></span>`,
-  }), [truck.placa, stale, selected]);
+    html: `<span class="truck-marker${state}${selected ? ' is-selected' : ''}">` +
+      `<span class="truck-marker-label">${sos ? 'SOS · ' : ''}${escapeHtml(truck.placa)}${speedLabel}${paused ? ' · En pausa' : ''}</span><span class="truck-marker-dot"></span></span>`,
+  }), [truck.placa, state, selected, speedLabel, paused, sos]);
 
-  return <Marker position={[lat, lng]} icon={icon} title={truck.placa} zIndexOffset={selected ? 1000 : 0}>
+  return <Marker position={[lat, lng]} icon={icon} title={truck.placa} zIndexOffset={sos ? 2000 : selected ? 1000 : 0}>
     <Popup>
       <div className="truck-popup">
         <strong>{truck.placa}</strong>
         {truck.modelo && <span>{truck.modelo}</span>}
+        {truck.sos && <p className="truck-popup-sos" role="alert">
+          SOS sin atender desde las {clock.format(new Date(truck.sos.desde))}. <Link href="/notificaciones">Atender en Notificaciones</Link>
+        </p>}
+        {speeding && <p className="truck-popup-speeding" role="alert">
+          Exceso de velocidad: {velocidad.toFixed(1)} km/h (límite {limiteKmh} km/h).
+        </p>}
+        {truck.pausa && <p className="truck-popup-pause">
+          Viaje en pausa desde las {clock.format(new Date(truck.pausa.desde))}.
+          {truck.pausa.movimiento && <strong> Se detectó movimiento durante la pausa ({clock.format(new Date(truck.pausa.movimiento))}).</strong>}
+        </p>}
         <dl>
           <dt>Conductor</dt><dd>{truck.conductor}</dd>
           <dt>Velocidad estimada</dt><dd>{stale ? 'Dato antiguo' : velocidad === null ? 'Sin datos confiables' : `${velocidad.toFixed(1)} km/h`}</dd>
@@ -86,11 +104,32 @@ function FocusSelected({ truck, route, request }: { truck?: LiveTruck; route: Li
   return null;
 }
 
-export default function FleetMap({ trucks, now, selectedTrip, route, focusRequest }: { trucks: LiveTruck[]; now: number | null; selectedTrip: string | null; route: LiveRoute | null; focusRequest: number }) {
+// Frames each new emergency once (route and last position); later refreshes leave the view alone.
+function FocusNewSos({ trucks, routes }: { trucks: LiveTruck[]; routes: LiveRoute[] }) {
+  const map = useMap();
+  const seen = useRef(new Set<string>());
+  useEffect(() => {
+    const fresh = trucks.filter(truck => truck.sos && !seen.current.has(truck.sos.id));
+    const points: LatLngTuple[] = [];
+    for (const truck of fresh) {
+      const ruta = routes.find(route => route.tripId === truck.tripId)?.ruta ?? [];
+      points.push(...ruta);
+      if (truck.ubicacion) points.push([truck.ubicacion.lat, truck.ubicacion.lng]);
+    }
+    if (!points.length) return;
+    for (const truck of fresh) seen.current.add(truck.sos!.id);
+    map.invalidateSize();
+    map.fitBounds(points, { padding: [48, 48], maxZoom: 16 });
+  }, [map, trucks, routes]);
+  return null;
+}
+
+export default function FleetMap({ trucks, now, selectedTrip, route, focusRequest, limiteKmh, sosRoutes }: { trucks: LiveTruck[]; now: number | null; selectedTrip: string | null; route: LiveRoute | null; focusRequest: number; limiteKmh: number | null; sosRoutes: LiveRoute[] }) {
   const located = useMemo(
     () => trucks.filter((truck): truck is LocatedTruck => truck.ubicacion !== null),
     [trucks],
   );
+  const selectedIsSos = sosRoutes.some(sosRoute => sosRoute.tripId === route?.tripId);
   const points = useMemo(
     () => located.map(({ ubicacion }): LatLngTuple => [ubicacion.lat, ubicacion.lng]),
     [located],
@@ -105,9 +144,13 @@ export default function FleetMap({ trucks, now, selectedTrip, route, focusReques
     <LockToGuatemala />
     <FitFirstPositions points={points} />
     <FocusSelected truck={trucks.find(truck => truck.tripId === selectedTrip)} route={route} request={focusRequest} />
-    {route && route.ruta.length > 1 && <Polyline positions={route.ruta} pathOptions={{ color: '#0349b9', weight: 5, opacity: 0.9 }} />}
+    <FocusNewSos trucks={trucks} routes={sosRoutes} />
+    {route && !selectedIsSos && route.ruta.length > 1 && <Polyline positions={route.ruta} pathOptions={{ color: '#0349b9', weight: 5, opacity: 0.9 }} />}
+    {sosRoutes.filter(sosRoute => sosRoute.ruta.length > 1).map(sosRoute => <Polyline key={sosRoute.tripId}
+      positions={sosRoute.ruta} pathOptions={{ color: '#d92d20', weight: 6, opacity: 0.9 }} />)}
     {located.map(truck => <TruckMarker key={truck.tripId} truck={truck}
       selected={truck.tripId === selectedTrip}
+      limiteKmh={limiteKmh}
       stale={now === null || !isRecentLocation(truck.ubicacion.timestamp, now)} />)}
   </MapContainer>;
 }

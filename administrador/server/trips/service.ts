@@ -1,9 +1,11 @@
 import 'server-only';
 import { MongoServerError, ObjectId } from 'mongodb';
+import { completeAssignment, linkAssignment, tripAssignment } from '@/server/assignments/service';
 import { verifyTruck } from '@/server/auth/driver-login';
 import type { DriverSession } from '@/server/auth/session';
 import { getDb } from '@/server/db/mongo';
 import { formatGuatemala, guatemalaNow, toGuatemala } from '@/server/time';
+import { closePause } from '@/server/trips/pause';
 import { speedKmh, type PingInput } from '@/server/trips/pings';
 
 const START_TOLERANCE_MS = 5 * 60 * 1000;
@@ -18,6 +20,8 @@ type Trip = {
   fin: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  assignmentId?: ObjectId;
+  pausadoDesde?: Date | null;
 };
 
 type LocationPing = {
@@ -93,8 +97,20 @@ export async function startTrip(session: DriverSession, qr: TruckQr | null, firs
       inicio: formatGuatemala(trip.inicio),
       resumed,
       truck: { placa: truck.placa, modelo: truck.modelo },
+      pausadoDesde: trip.pausadoDesde ? formatGuatemala(trip.pausadoDesde) : null,
+      assignment: await (resumed ? tripAssignment(trip._id) : startedAssignment(trip)),
     },
   };
+}
+
+/** The trip already exists, so a failure here must not turn the start into an error the app would retry. */
+async function startedAssignment(trip: Trip) {
+  try {
+    return await linkAssignment(trip);
+  } catch (error) {
+    console.error('[trips] assignment link failed', (error as Error)?.name, (error as { code?: unknown })?.code);
+    return null;
+  }
 }
 
 async function storePings(trip: Trip, input: PingInput[]) {
@@ -175,6 +191,8 @@ export async function activeTrip(session: DriverSession) {
         tripId: trip._id.toHexString(),
         inicio: formatGuatemala(trip.inicio),
         truck: { placa: truck?.placa ?? '', modelo: truck?.modelo ?? '' },
+        pausadoDesde: trip.pausadoDesde ? formatGuatemala(trip.pausadoDesde) : null,
+        assignment: await tripAssignment(trip._id),
       },
     },
   };
@@ -192,5 +210,8 @@ export async function endTrip(session: DriverSession, tripId: ObjectId) {
   );
   const trip = closed ?? await trips.findOne(filter);
   if (!trip?.fin) return fail(404, 'Viaje no encontrado.');
+  // Runs on every close request, so retrying the close also completes the assignment and the pause.
+  await completeAssignment(tripId);
+  await closePause(tripId, trip.fin);
   return { ok: true as const, status: 200, body: { tripId: tripId.toHexString(), estado: trip.estado, fin: formatGuatemala(trip.fin) } };
 }

@@ -15,6 +15,64 @@ histórica contradictoria de las secciones posteriores. El código sigue siendo 
 fuente de verdad. El encargo actual es actualizar este documento para el siguiente
 agente; no hay autorización nueva para desplegar, empaquetar Android o cambiar infraestructura.
 
+### SOS en el mapa en vivo (23/10/2026)
+
+Con un SOS sin atender, `/mapa` muestra el aviso rojo "SOS · Emergencia" en la barra lateral, el
+marcador del camión en rojo (con pulso y etiqueta "SOS") y su ruta completa en rojo, y encuadra el
+SOS nuevo. `GET /api/trucks/live` añade `trucks[].sos` y `sosRoutes` (ver `server/README.md`).
+Se quita al marcarlo atendido. Verificado: 78 pruebas (1 nueva en `live-route.test.mjs`), lint, `tsc`,
+build. No verificado en navegador: en Atlas no hay ningún SOS abierto y no se creó uno.
+
+### Alertas de exceso de velocidad (23/10/2026)
+
+Revisado: el límite vigente en Atlas es 100 km/h (`speedControls`, editable en `/control`); exceso es
+velocidad estrictamente mayor. Ya existían la lista lateral de `/mapa`, el incidente `speed` (uno por
+episodio) y el correo EmailJS. Añadido a pedido del usuario: aviso rojo de excesos sin atender en todas
+las páginas del panel (`IncidentFeed compact`, con "Marcar atendido"), marcador rojo con velocidad en el
+mapa en vivo y velocidad/límite en cada incidente (`listIncidents` devuelve `speed` y `limit`). El usuario
+**no** pidió alerta en la app del piloto ni un límite por defecto de 100 si no hay configuración.
+Verificado: 77 pruebas, lint, `tsc`, build. No verificado en navegador (no hay incidentes de exceso reales).
+
+### Pausar viaje (23/10/2026)
+
+Contrato en `administrador/server/README.md` → "Pausar viaje". Resumen:
+
+- App: botón "Pausar viaje" / "Reanudar viaje" bajo el botón principal. En pausa el GPS sigue
+  solo para detectar movimiento (no se guarda ni envía); 2 lecturas seguidas ≥ 10 km/h muestran
+  un aviso rojo, lanzan una notificación local (`showPauseReminder`, canal `trip_pause`, máximo
+  cada 5 min) y se reporta una vez al servidor. Reanudar funciona sin conexión y se sincroniza después.
+  La pausa se guarda en `TripInfo.pausedSince` y sobrevive al reinicio de la app.
+- Servidor: `server/trips/pause.ts`, rutas `trips/:id/pause|resume|pause-movement`, campos
+  `trips.pausadoDesde` y `trips.pausaMovimientoAt`, colección nueva `tripPauses`; `endTrip` cierra
+  la pausa. Mapa en vivo: marcador ámbar "En pausa", rojo con movimiento, y alerta lateral.
+- `AssignmentNotifications.kt` pasó a llamarse `LocalNotifications.kt` (asignaciones y pausa).
+- Verificado: 77 pruebas `node:test` (4 nuevas), lint, `tsc`, build; `flutter analyze` y 53 pruebas
+  Flutter (2 nuevas). **No verificado**: navegador, Atlas, compilación Kotlin ni notificación real.
+
+### Asignar viaje (23/10/2026)
+
+Implementado según [administrador/server/assignments/README.md](administrador/server/assignments/README.md),
+que es la referencia del contrato. Resumen:
+
+- Panel `/asignar` (sidebar "Asignar viaje", `proxy.ts`): camión y piloto activos, origen (A) y destino (B)
+  con clic en un mapa Leaflet (marcadores arrastrables, línea recta discontinua), fecha y hora de Guatemala,
+  nota. Lista paginada con estado y cancelación de pendientes.
+- Colección nueva `tripAssignments` con fechas en **UTC real**; `trips.assignmentId` como campo extra.
+  No se tocaron validadores ni se crearon índices (recomendados en el README).
+- `startTrip` vincula el viaje nuevo a la asignación `pendiente` más antigua del mismo piloto y camión
+  (`findOneAndUpdate` atómico); `endTrip` la completa en cada cierre. `trips/start` y `trips/active`
+  devuelven `assignment`.
+- Flutter: `AssignmentWatcher` (`lib/core/assignments.dart`) consulta `assignments/mine` cada 60 s y al
+  volver a primer plano; aviso local por el canal `control_vehicular/notifications`
+  (`LocalNotifications.kt`, registrado en el motor retenido, sin dependencias nuevas). Campana con
+  contador, `NotificationsPage`, tarjeta "Viaje asignado" y origen/destino durante el viaje vinculado.
+- Sin Firebase: el aviso solo llega con el proceso de la app vivo.
+- Verificado: 73 pruebas `node:test` (7 nuevas en `scripts/assignments.test.mjs`), lint, `tsc`, build;
+  `flutter analyze` sin problemas y 51 pruebas (3 nuevas en `test/assignments_test.dart`). Prueba de
+  lectura contra Atlas con `next start -p 3100` y cookie firmada: `/asignar` 200, sin sesión 307,
+  API 401 sin credenciales. **No verificado**: vista en navegador, creación real de una asignación,
+  compilación del Kotlin y notificación en teléfono.
+
 ### Continuación vigente: mapa de Camiones, registros y QR (20/10/2026)
 
 Esta subsección tiene prioridad sobre todo el historial que sigue. El usuario pidió
