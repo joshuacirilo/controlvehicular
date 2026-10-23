@@ -11,6 +11,8 @@ type LiveRow = {
   _id: ObjectId;
   truckId: ObjectId;
   inicio: Date;
+  pausadoDesde?: Date | null;
+  pausaMovimientoAt?: Date | null;
   truck?: { placa: string; modelo: string };
   driver?: { nombre: string };
   ping?: {
@@ -51,7 +53,7 @@ export async function liveTrucks(selectedTrip?: string): Promise<Result<LiveTruc
     },
     {
       $project: {
-        truckId: 1, inicio: 1, recent: '$ping',
+        truckId: 1, inicio: 1, pausadoDesde: 1, pausaMovimientoAt: 1, recent: '$ping',
         truck: { $first: '$truck' }, driver: { $first: '$driver' }, ping: { $first: '$ping' },
       },
     },
@@ -71,6 +73,12 @@ export async function liveTrucks(selectedTrip?: string): Promise<Result<LiveTruc
         velocidad: liveSpeed(row.recent),
         precision: row.ping.precision ?? null,
         timestamp: formatGuatemala(row.ping.timestamp),
+      }
+      : null,
+    pausa: row.pausadoDesde
+      ? {
+        desde: formatGuatemala(row.pausadoDesde),
+        movimiento: row.pausaMovimientoAt ? formatGuatemala(row.pausaMovimientoAt) : null,
       }
       : null,
   })).sort((a, b) => a.placa.localeCompare(b.placa));

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
 import 'core/api_client.dart';
+import 'core/assignments.dart';
 import 'core/brand.dart';
 import 'core/location_service.dart';
 import 'core/ping_store.dart';
@@ -27,6 +28,7 @@ class LoginPage extends StatefulWidget {
     this.locate,
     this.watch,
     this.checkPermissions = checkPilotPermissions,
+    this.notifyAssignment,
   });
   final Future<QrCredentials?> Function(BuildContext)? scanQr;
   final ApiClient? api;
@@ -41,6 +43,9 @@ class LoginPage extends StatefulWidget {
   final Future<Position> Function()? locate;
   final Stream<Position> Function()? watch;
   final PermissionCheck checkPermissions;
+
+  /// System notification for new assignments; the Android channel when null.
+  final AssignmentNotifier? notifyAssignment;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -57,6 +62,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
   AuthSession? _session;
   AuthSession? _pendingSession;
   TripTracker? _tracker;
+  AssignmentWatcher? _assignments;
   late final Future<PingStore> _store;
   late final SessionStore _sessions;
   @override
@@ -93,8 +99,10 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
     }
     if (!mounted || _session != session || allowed) return;
     _tracker?.dispose();
+    _assignments?.dispose();
     setState(() {
       _tracker = null;
+      _assignments = null;
       _session = null;
       _pendingSession = session;
     });
@@ -136,6 +144,11 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
       _session = session;
       _pendingSession = null;
       _tracker = tracker;
+      _assignments = AssignmentWatcher(
+        api: _api!,
+        token: session.token,
+        notify: widget.notifyAssignment,
+      );
     });
     unawaited(tracker.resumeActiveTrip());
   }
@@ -143,8 +156,10 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
   Future<void> _logout() async {
     final session = _session;
     _tracker?.dispose();
+    _assignments?.dispose();
     setState(() {
       _tracker = null;
+      _assignments = null;
       _session = null;
       _error = null;
       _visible = false;
@@ -229,6 +244,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tracker?.dispose();
+    _assignments?.dispose();
     _username.dispose();
     _password.dispose();
     if (widget.api == null) _api?.close();
@@ -242,6 +258,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
           name: _session!.name,
           tracker: _tracker!,
           onLogout: _logout,
+          assignments: _assignments,
         )
       : _pendingSession != null
       ? PilotPermissionGate(
@@ -394,15 +411,45 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                               ),
                             ),
                             TextButton(
-                              onPressed: _api == null ? null : () {
-                                final url = _api!.baseUrl.replace(path: '/recuperar', query: null, fragment: null).toString();
-                                showDialog<void>(context: context, builder: (context) => AlertDialog(
-                                  title: const Text('Recuperar contraseña'),
-                                  content: SelectableText('Abre esta dirección en tu navegador e ingresa el correo de tu cuenta:\n$url'),
-                                  actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
-                                    TextButton(onPressed: () async { await Clipboard.setData(ClipboardData(text: url)); }, child: const Text('Copiar enlace'))],
-                                ));
-                              },
+                              onPressed: _api == null
+                                  ? null
+                                  : () {
+                                      final url = _api!.baseUrl
+                                          .replace(
+                                            path: '/recuperar',
+                                            query: null,
+                                            fragment: null,
+                                          )
+                                          .toString();
+                                      showDialog<void>(
+                                        context: context,
+                                        builder: (context) => AlertDialog(
+                                          title: const Text(
+                                            'Recuperar contraseña',
+                                          ),
+                                          content: SelectableText(
+                                            'Abre esta dirección en tu navegador e ingresa el correo de tu cuenta:\n$url',
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(context),
+                                              child: const Text('Cerrar'),
+                                            ),
+                                            TextButton(
+                                              onPressed: () async {
+                                                await Clipboard.setData(
+                                                  ClipboardData(text: url),
+                                                );
+                                              },
+                                              child: const Text(
+                                                'Copiar enlace',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
                               child: const Text('Olvidé mi contraseña'),
                             ),
                             const SizedBox(height: 12),

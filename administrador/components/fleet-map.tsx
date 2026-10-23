@@ -42,21 +42,34 @@ function FitFirstPositions({ points }: { points: LatLngTuple[] }) {
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, char => `&#${char.charCodeAt(0)};`);
 
-function TruckMarker({ truck, stale, selected }: { truck: LocatedTruck; stale: boolean; selected: boolean }) {
+function TruckMarker({ truck, stale, selected, limiteKmh }: { truck: LocatedTruck; stale: boolean; selected: boolean; limiteKmh: number | null }) {
   const { lat, lng, velocidad, precision, timestamp } = truck.ubicacion;
+  const paused = truck.pausa !== null;
+  const movingWhilePaused = Boolean(truck.pausa?.movimiento);
+  // Same rule as the speed alerts list: a recent sample strictly above the limit.
+  const speeding = !stale && velocidad !== null && limiteKmh !== null && velocidad > limiteKmh;
+  const speedLabel = speeding ? ` · ${velocidad.toFixed(0)} km/h` : '';
+  const state = speeding ? ' is-speeding' : paused ? movingWhilePaused ? ' is-paused-moving' : ' is-paused' : stale ? ' is-stale' : '';
   // Built from HTML so no image assets are needed (Leaflet's default icon breaks with bundlers).
   const icon = useMemo(() => divIcon({
     className: 'truck-marker-icon',
     iconSize: [0, 0],
-    html: `<span class="truck-marker${stale ? ' is-stale' : ''}${selected ? ' is-selected' : ''}">` +
-      `<span class="truck-marker-label">${escapeHtml(truck.placa)}</span><span class="truck-marker-dot"></span></span>`,
-  }), [truck.placa, stale, selected]);
+    html: `<span class="truck-marker${state}${selected ? ' is-selected' : ''}">` +
+      `<span class="truck-marker-label">${escapeHtml(truck.placa)}${speedLabel}${paused ? ' · En pausa' : ''}</span><span class="truck-marker-dot"></span></span>`,
+  }), [truck.placa, state, selected, speedLabel, paused]);
 
   return <Marker position={[lat, lng]} icon={icon} title={truck.placa} zIndexOffset={selected ? 1000 : 0}>
     <Popup>
       <div className="truck-popup">
         <strong>{truck.placa}</strong>
         {truck.modelo && <span>{truck.modelo}</span>}
+        {speeding && <p className="truck-popup-speeding" role="alert">
+          Exceso de velocidad: {velocidad.toFixed(1)} km/h (límite {limiteKmh} km/h).
+        </p>}
+        {truck.pausa && <p className="truck-popup-pause">
+          Viaje en pausa desde las {clock.format(new Date(truck.pausa.desde))}.
+          {truck.pausa.movimiento && <strong> Se detectó movimiento durante la pausa ({clock.format(new Date(truck.pausa.movimiento))}).</strong>}
+        </p>}
         <dl>
           <dt>Conductor</dt><dd>{truck.conductor}</dd>
           <dt>Velocidad estimada</dt><dd>{stale ? 'Dato antiguo' : velocidad === null ? 'Sin datos confiables' : `${velocidad.toFixed(1)} km/h`}</dd>
@@ -86,7 +99,7 @@ function FocusSelected({ truck, route, request }: { truck?: LiveTruck; route: Li
   return null;
 }
 
-export default function FleetMap({ trucks, now, selectedTrip, route, focusRequest }: { trucks: LiveTruck[]; now: number | null; selectedTrip: string | null; route: LiveRoute | null; focusRequest: number }) {
+export default function FleetMap({ trucks, now, selectedTrip, route, focusRequest, limiteKmh }: { trucks: LiveTruck[]; now: number | null; selectedTrip: string | null; route: LiveRoute | null; focusRequest: number; limiteKmh: number | null }) {
   const located = useMemo(
     () => trucks.filter((truck): truck is LocatedTruck => truck.ubicacion !== null),
     [trucks],
@@ -108,6 +121,7 @@ export default function FleetMap({ trucks, now, selectedTrip, route, focusReques
     {route && route.ruta.length > 1 && <Polyline positions={route.ruta} pathOptions={{ color: '#0349b9', weight: 5, opacity: 0.9 }} />}
     {located.map(truck => <TruckMarker key={truck.tripId} truck={truck}
       selected={truck.tripId === selectedTrip}
+      limiteKmh={limiteKmh}
       stale={now === null || !isRecentLocation(truck.ubicacion.timestamp, now)} />)}
   </MapContainer>;
 }

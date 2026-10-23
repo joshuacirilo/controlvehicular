@@ -65,6 +65,9 @@ class SecureSessionStore implements SessionStore {
       startedAt: data['startedAt'] is String
           ? DateTime.tryParse(data['startedAt'] as String)
           : null,
+      pausedSince: data['pausedSince'] is String
+          ? DateTime.tryParse(data['pausedSince'] as String)
+          : null,
     );
   }
 
@@ -76,6 +79,7 @@ class SecureSessionStore implements SessionStore {
       'plate': trip.plate,
       'model': trip.model,
       'startedAt': trip.startedAt?.toUtc().toIso8601String(),
+      'pausedSince': trip.pausedSince?.toUtc().toIso8601String(),
     }),
   );
 

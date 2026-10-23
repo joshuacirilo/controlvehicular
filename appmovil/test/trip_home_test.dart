@@ -54,6 +54,9 @@ class _FakeServer {
     if (path == '/api/auth/logout') {
       return http.Response('{"loggedOut":true}', 200, headers: _json);
     }
+    if (path == '/api/assignments/mine') {
+      return http.Response('{"assignments":[]}', 200, headers: _json);
+    }
     if (path == '/api/trips/start') {
       if (body['placa'] == busyPlate) {
         return http.Response(
@@ -101,7 +104,11 @@ class _FakeServer {
       return http.Response('{"estado":"finalizado"}', 200, headers: _json);
     }
     if (path == '/api/trips/trip-1/sos') {
-      return http.Response('{"recorded":true,"incidentId":"sos-1"}', 200, headers: _json);
+      return http.Response(
+        '{"recorded":true,"incidentId":"sos-1"}',
+        200,
+        headers: _json,
+      );
     }
     fail('Unexpected request $path');
   }
@@ -181,7 +188,9 @@ Future<void> _finish(WidgetTester tester, TripTracker tracker) async {
 const _tick = Duration(seconds: 5);
 
 void main() {
-  testWidgets('SOS requires confirmation and does not close the trip', (tester) async {
+  testWidgets('SOS requires confirmation and does not close the trip', (
+    tester,
+  ) async {
     final (server, tracker) = await _pumpTrip(tester);
     await tester.tap(find.text('SOS · Emergencia'));
     await tester.pumpAndSettle();
@@ -192,14 +201,22 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Enviar SOS'));
     await tester.pumpAndSettle();
-    expect(server.requests.where((r) => r.url.path.endsWith('/sos')), hasLength(1));
+    expect(
+      server.requests.where((r) => r.url.path.endsWith('/sos')),
+      hasLength(1),
+    );
     expect(tracker.status, TripStatus.active);
     expect(server.ends, isEmpty);
-    expect(find.text('SOS registrado en la central. Contacta también por teléfono.'), findsOneWidget);
+    expect(
+      find.text('SOS registrado en la central. Contacta también por teléfono.'),
+      findsOneWidget,
+    );
     await _finish(tester, tracker);
   });
 
-  testWidgets('SOS offline reports unconfirmed and preserves the active trip', (tester) async {
+  testWidgets('SOS offline reports unconfirmed and preserves the active trip', (
+    tester,
+  ) async {
     final (server, tracker) = await _pumpTrip(tester);
     server.offline = true;
     expect(await tracker.sendSos(), false);

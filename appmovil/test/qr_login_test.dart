@@ -120,6 +120,9 @@ void main() {
           if (request.url.path == '/api/trips/active') {
             return http.Response('{"trip":null}', 200);
           }
+          if (request.url.path == '/api/assignments/mine') {
+            return http.Response('{"assignments":[]}', 200);
+          }
           requests++;
           expect(request.url.path, '/api/auth/login');
           expect(jsonDecode(request.body), {

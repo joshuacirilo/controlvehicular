@@ -6,9 +6,12 @@ import 'core/gps_quality.dart';
 
 import 'package:flutter/material.dart';
 
+import 'core/api_client.dart';
+import 'core/assignments.dart';
 import 'core/brand.dart';
 import 'core/qr_credentials.dart';
 import 'core/trip_tracker.dart';
+import 'notifications_page.dart';
 import 'qr_scan_page.dart';
 
 class TripHomePage extends StatelessWidget {
@@ -18,11 +21,26 @@ class TripHomePage extends StatelessWidget {
     required this.tracker,
     required this.onLogout,
     this.scanTruckQr,
+    this.assignments,
   });
   final String name;
   final TripTracker tracker;
   final VoidCallback onLogout;
   final Future<TruckCredentials?> Function(BuildContext)? scanTruckQr;
+
+  /// Trips assigned by an administrator; hides the notifications when null.
+  final AssignmentWatcher? assignments;
+
+  void _openNotifications(BuildContext context) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => NotificationsPage(watcher: assignments!),
+    ),
+  );
+
+  Future<void> _end() async {
+    await tracker.end();
+    await assignments?.refresh();
+  }
 
   Future<TruckCredentials?> _scanTruck(BuildContext context) =>
       Navigator.of(context).push<TruckCredentials>(
@@ -41,24 +59,45 @@ class TripHomePage extends StatelessWidget {
     final truck = await (scanTruckQr ?? _scanTruck)(context);
     if (truck == null || !context.mounted) return;
     await tracker.start(truck);
+    // A matching assignment is now in progress.
+    await assignments?.refresh();
   }
 
   bool get _canLogout =>
       tracker.status == TripStatus.idle || tracker.sessionExpired;
 
   Future<void> _sos(BuildContext context) async {
-    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
-      title: const Text('¿Enviar SOS?'),
-      content: const Text('Avisaremos de una emergencia a tu central. Contacta también a emergencias o a tu central por teléfono. No esperes la confirmación del correo.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Enviar SOS'))],
-    ));
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Enviar SOS?'),
+        content: const Text(
+          'Avisaremos de una emergencia a tu central. Contacta también a emergencias o a tu central por teléfono. No esperes la confirmación del correo.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Enviar SOS'),
+          ),
+        ],
+      ),
+    );
     if (confirmed != true || !context.mounted) return;
     final recorded = await tracker.sendSos();
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(recorded
-      ? 'SOS registrado en la central. Contacta también por teléfono.'
-      : 'No se confirmó el SOS. Contacta por teléfono y vuelve a intentarlo cuando tengas conexión.')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          recorded
+              ? 'SOS registrado en la central. Contacta también por teléfono.'
+              : 'No se confirmó el SOS. Contacta por teléfono y vuelve a intentarlo cuando tengas conexión.',
+        ),
+      ),
+    );
   }
 
   /// The only way to end the session: it survives closing the app.
@@ -101,10 +140,12 @@ class TripHomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: tracker,
+    listenable: Listenable.merge([tracker, ?assignments]),
     builder: (context, _) {
       final status = tracker.status;
       final blocked = tracker.sessionExpired;
+      final assigned = tracker.trip == null ? assignments?.nextPending : null;
+      final unread = assignments?.unreadCount ?? 0;
       return Scaffold(
         appBar: AppBar(
           title: const Row(
@@ -115,6 +156,18 @@ class TripHomePage extends StatelessWidget {
             ],
           ),
           actions: [
+            if (assignments != null)
+              IconButton(
+                onPressed: () => _openNotifications(context),
+                tooltip: unread == 0
+                    ? 'Notificaciones'
+                    : 'Notificaciones ($unread sin leer)',
+                icon: Badge(
+                  isLabelVisible: unread > 0,
+                  label: Text('$unread'),
+                  child: const Icon(Icons.notifications_outlined),
+                ),
+              ),
             IconButton(
               onPressed: () => _logout(context),
               tooltip: 'Cerrar sesión',
@@ -140,6 +193,8 @@ class TripHomePage extends StatelessWidget {
                     Text(
                       tracker.trip == null
                           ? '¿Qué deseas hacer hoy?'
+                          : tracker.paused
+                          ? 'Tu viaje está en pausa.'
                           : 'Tienes un viaje en curso.',
                       style: const TextStyle(
                         color: BrandColors.muted,
@@ -147,6 +202,13 @@ class TripHomePage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 32),
+                    if (assigned != null && !blocked) ...[
+                      _AssignedTripCard(
+                        assignment: assigned,
+                        onDetails: () => _openNotifications(context),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     if (blocked) ...[
                       _SessionExpiredCard(
                         pending: tracker.pendingCount,
@@ -171,16 +233,69 @@ class TripHomePage extends StatelessWidget {
                       label: Text(switch (status) {
                         TripStatus.starting => 'Buscando señal GPS...',
                         TripStatus.idle => 'Iniciar viaje',
+                        _ when tracker.paused => 'Viaje en pausa',
                         _ => 'Viaje en curso',
                       }, style: _bigLabel),
                     ),
                     if (tracker.trip != null) ...[
                       const SizedBox(height: 16),
+                      FilledButton.tonalIcon(
+                        onPressed:
+                            status == TripStatus.active &&
+                                !blocked &&
+                                !tracker.pauseBusy
+                            ? (tracker.paused ? tracker.resume : tracker.pause)
+                            : null,
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(56),
+                          backgroundColor: tracker.paused
+                              ? const Color(0xffd1fadf)
+                              : const Color(0xfffef0c7),
+                          foregroundColor: tracker.paused
+                              ? const Color(0xff05603a)
+                              : const Color(0xff93370d),
+                        ),
+                        icon: tracker.pauseBusy
+                            ? const _ButtonSpinner(color: Color(0xff93370d))
+                            : Icon(
+                                tracker.paused
+                                    ? Icons.play_arrow_rounded
+                                    : Icons.pause_rounded,
+                              ),
+                        label: Text(
+                          tracker.paused
+                              ? 'Reanudar viaje'
+                              : tracker.pauseBusy
+                              ? 'Pausando…'
+                              : 'Pausar viaje',
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (tracker.trip?.pausedSince case final since?) ...[
+                        const SizedBox(height: 12),
+                        _PausedCard(
+                          since: since,
+                          motionKmh: tracker.pausedMotionKmh,
+                        ),
+                      ],
+                      const SizedBox(height: 16),
                       FilledButton.icon(
-                        onPressed: !blocked && !tracker.sendingSos ? () => _sos(context) : null,
-                        style: FilledButton.styleFrom(backgroundColor: Colors.red.shade800, foregroundColor: Colors.white),
+                        onPressed: !blocked && !tracker.sendingSos
+                            ? () => _sos(context)
+                            : null,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.red.shade800,
+                          foregroundColor: Colors.white,
+                        ),
                         icon: const Icon(Icons.sos),
-                        label: Text(tracker.sendingSos ? 'Registrando SOS…' : 'SOS · Emergencia'),
+                        label: Text(
+                          tracker.sendingSos
+                              ? 'Registrando SOS…'
+                              : 'SOS · Emergencia',
+                        ),
                       ),
                       const SizedBox(height: 16),
                       _ActiveTripCard(tracker: tracker),
@@ -200,7 +315,7 @@ class TripHomePage extends StatelessWidget {
                     const SizedBox(height: 18),
                     OutlinedButton.icon(
                       onPressed: status == TripStatus.active && !blocked
-                          ? tracker.end
+                          ? _end
                           : null,
                       style: _bigButton(
                         OutlinedButton.styleFrom(
@@ -330,6 +445,13 @@ class _ActiveTripCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (trip.assignment case final assignment?) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Viaje asignado: ${assignment.origin.label} → ${assignment.destination.label}',
+                style: const TextStyle(color: BrandColors.navy),
+              ),
+            ],
             const SizedBox(height: 12),
             Text('Tiempo de viaje: ${_elapsed(tracker.startedAt)}'),
             Text(
@@ -447,6 +569,97 @@ class _ActiveTripCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PausedCard extends StatelessWidget {
+  const _PausedCard({required this.since, required this.motionKmh});
+  final DateTime since;
+  final double? motionKmh;
+
+  @override
+  Widget build(BuildContext context) {
+    final local = since.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final motion = motionKmh;
+    return Card(
+      elevation: 0,
+      color: const Color(0xfffffaeb),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Semantics(
+          liveRegion: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Viaje en pausa desde las ${two(local.hour)}:${two(local.minute)}. '
+                'No se registra el recorrido: toca "Reanudar viaje" al volver a conducir.',
+                style: const TextStyle(color: Color(0xff93370d)),
+              ),
+              if (motion != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Se detectó movimiento (${motion.round()} km/h) con el viaje en pausa. '
+                  'Reanuda el viaje para registrar el recorrido.',
+                  style: const TextStyle(
+                    color: Color(0xffb42318),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AssignedTripCard extends StatelessWidget {
+  const _AssignedTripCard({required this.assignment, required this.onDetails});
+  final TripAssignment assignment;
+  final VoidCallback onDetails;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    elevation: 0,
+    color: const Color(0xffe8f1ff),
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.assignment_outlined, color: BrandColors.blue),
+              SizedBox(width: 8),
+              Text(
+                'Viaje asignado',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Camión ${assignment.plate} · Salida ${formatSchedule(assignment.scheduledAt)}',
+          ),
+          Text('${assignment.origin.label} → ${assignment.destination.label}'),
+          const SizedBox(height: 8),
+          Text(
+            'Escanea el QR del camión ${assignment.plate} con "Iniciar viaje" para empezar.',
+            style: const TextStyle(color: BrandColors.muted),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onDetails,
+              child: const Text('Ver detalles'),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _MessageCard extends StatelessWidget {

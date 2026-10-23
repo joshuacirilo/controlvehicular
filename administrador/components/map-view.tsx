@@ -23,10 +23,12 @@ function LiveStatus({ trucks, updatedAt, error }: LiveTrucksState) {
     </p>;
   }
   const withoutLocation = trucks.filter(truck => !truck.ubicacion).length;
+  const paused = trucks.filter(truck => truck.pausa).length;
   const summary = trucks.length === 0
     ? 'No hay vehículos en viaje.'
     : `${trucks.length} ${trucks.length === 1 ? 'vehículo' : 'vehículos'} en viaje` +
-      (withoutLocation ? ` (${withoutLocation} sin ubicación aún)` : '') + '.';
+      (withoutLocation ? ` (${withoutLocation} sin ubicación aún)` : '') +
+      (paused ? `, ${paused} en pausa` : '') + '.';
   return <p className={`map-status${error ? ' is-error' : ''}`} role="status">
     {summary} {error ? `${error} Reintentando…` : `Actualizado a las ${clock.format(updatedAt)}.`}
   </p>;
@@ -58,10 +60,18 @@ export function MapView() {
   const totalPages = Math.max(1, Math.ceil(matches.length / 5));
   const page = Math.min(requestedPage, totalPages);
   const visible = matches.slice((page - 1) * 5, page * 5);
+  const pausedMoving = live.trucks.filter(truck => truck.pausa?.movimiento);
   return <>
     <LiveStatus {...live} />
     <div className="live-map-layout">
       <aside className="live-speed-sidebar" aria-labelledby="live-speed-title">
+        {pausedMoving.length > 0 && <section className="live-pause-alert" role="alert" aria-label="Movimiento con viaje en pausa">
+          <h2>Movimiento con viaje en pausa</h2>
+          <ul>{pausedMoving.map(truck => <li key={truck.tripId}>
+            <strong>{truck.placa}</strong> · {truck.conductor} · desde las {clock.format(new Date(truck.pausa!.movimiento!))}
+          </li>)}</ul>
+          <p className="layer-note">La app ya le pidió al piloto reanudar el viaje. Mientras siga en pausa no se registra el recorrido.</p>
+        </section>}
         <h2 id="live-speed-title">Control de velocidad</h2>
         <p className="layer-note">{live.limiteKmh === null ? 'Sin límite configurado.' : `Límite vigente: ${live.limiteKmh} km/h.`} <Link href="/control" className="dashboard-link">Configurar</Link></p>
         {(live.error || live.updatedAt === null || live.limiteKmh === null) && <p role="status">{live.error ? 'Alertas no disponibles mientras se recupera la conexión.' : live.updatedAt === null ? 'Cargando vehículos…' : 'Configura un límite para detectar excesos.'}</p>}
@@ -93,7 +103,7 @@ export function MapView() {
           <button type="button" className="pagination-button" onClick={() => setSelected(null)}>Quitar selección</button>
         </section>}
       </aside>
-      <div className="map-frame"><FleetMap trucks={live.trucks} now={clockNow} selectedTrip={current?.tripId ?? null} route={route} focusRequest={focus} /></div>
+      <div className="map-frame"><FleetMap trucks={live.trucks} now={clockNow} selectedTrip={current?.tripId ?? null} route={route} focusRequest={focus} limiteKmh={live.error ? null : live.limiteKmh} /></div>
     </div>
   </>;
 }

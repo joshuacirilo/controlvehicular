@@ -27,6 +27,11 @@ export function TruckIcon() {
     <circle cx="6.5" cy="17.5" r="2" /><circle cx="17.5" cy="17.5" r="2" /></Icon>;
 }
 
+export function AssignIcon() {
+  return <Icon><circle cx="5" cy="18" r="2" /><path d="M17 3a4 4 0 0 0-4 4c0 3 4 7 4 7s4-4 4-7a4 4 0 0 0-4-4Z" />
+    <circle cx="17" cy="7" r="1" /><path d="M7 18h5a3 3 0 0 0 3-3" strokeDasharray="2 2.5" /></Icon>;
+}
+
 export function ExpandIcon() {
   return <Icon width="16" height="16"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></Icon>;
 }

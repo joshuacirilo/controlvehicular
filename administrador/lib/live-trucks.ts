@@ -17,6 +17,8 @@ export type LiveTruck = {
   inicio: string;
   /** Null until the first ping of the trip arrives. */
   ubicacion: TruckLocation | null;
+  /** Set while the pilot has paused the trip; `movimiento` is when the app saw the vehicle moving during it. */
+  pausa: { desde: string; movimiento: string | null } | null;
 };
 
 export const LIVE_FRESH_MS = 90_000;

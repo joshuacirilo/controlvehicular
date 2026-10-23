@@ -18,6 +18,9 @@ void main() {
       var activeRequests = 0;
       final api = ApiClient(
         client: MockClient((request) async {
+          if (request.url.path == '/api/assignments/mine') {
+            return http.Response('{"assignments":[]}', 200);
+          }
           activeRequests++;
           return http.Response('{"trip":null}', 200);
         }),
@@ -62,6 +65,9 @@ void main() {
         if (request.url.path == '/api/trips/active') {
           expect(request.headers['Authorization'], 'Bearer token-1');
           return http.Response('{"trip":null}', 200);
+        }
+        if (request.url.path == '/api/assignments/mine') {
+          return http.Response('{"assignments":[]}', 200);
         }
         if (request.url.path == '/api/auth/logout') {
           expect(request.headers['Authorization'], 'Bearer token-1');

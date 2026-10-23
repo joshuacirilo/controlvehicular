@@ -10,6 +10,7 @@ import 'ping_store.dart';
 import 'qr_credentials.dart';
 import 'session_store.dart';
 import 'gps_quality.dart';
+import 'pause_reminder.dart';
 
 enum TripStatus { idle, starting, active, ending }
 
@@ -28,6 +29,11 @@ enum TripStatus { idle, starting, active, ending }
 /// With [sessionStore], the active trip is saved on the device so
 /// [resumeActiveTrip] can continue it after the app restarts, and a session
 /// rejected by the server is forgotten.
+///
+/// While the trip is [paused], the GPS keeps running only to detect movement:
+/// those locations are neither stored nor sent. Moving at
+/// [pauseMotionKmh] or more raises [remindPause] and is reported once to the
+/// server.
 class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
   TripTracker({
     required this._api,
@@ -37,11 +43,13 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
     this._sessionStore,
     Future<Position> Function()? locate,
     this._watch,
+    PauseReminder? remindPause,
     this.interval = const Duration(seconds: 5),
     this.uploadInterval = const Duration(minutes: 1),
     this.maxQueue = 120000,
   }) : _store = store ?? MemoryPingStore(),
-       _locate = locate ?? currentLocation {
+       _locate = locate ?? currentLocation,
+       _remindPause = remindPause ?? showPauseReminder {
     WidgetsBinding.instance.addObserver(this);
     _appState =
         WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
@@ -55,6 +63,7 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
   final SessionStore? _sessionStore;
   final Future<Position> Function() _locate;
   final Stream<Position> Function()? _watch;
+  final PauseReminder _remindPause;
   final Duration interval;
   final Duration uploadInterval;
 
@@ -68,6 +77,13 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
   static const _storageProblem =
       'No se pudo guardar la ubicación en el teléfono.';
   static final _random = Random.secure();
+
+  /// Walking pace and GPS drift stay below this speed.
+  static const pauseMotionKmh = 10.0;
+
+  /// Consecutive fast samples needed, so a single bad fix does not count.
+  static const _motionSamples = 2;
+  static const _reminderEvery = Duration(minutes: 5);
 
   TripStatus status = TripStatus.idle;
   TripInfo? trip;
@@ -109,6 +125,170 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
       sendingSos = false;
       if (!_disposed) notifyListeners();
     }
+  }
+
+  bool get paused => trip?.pausedSince != null;
+
+  /// True while the pause request is on its way to the server.
+  bool pauseBusy = false;
+
+  /// Speed of the movement detected during the current pause; null if none.
+  double? pausedMotionKmh;
+  int _fastSamples = 0;
+  Position? _pausePosition;
+  DateTime? _lastReminderAt;
+  bool _resumePending = false;
+  double? _unreportedMotionKmh;
+  Future<void>? _syncingPause;
+
+  /// Pausing needs the server; on failure the trip keeps recording.
+  Future<void> pause() async {
+    final current = trip;
+    if (current == null ||
+        status != TripStatus.active ||
+        paused ||
+        pauseBusy ||
+        sessionExpired) {
+      return;
+    }
+    _update(() {
+      pauseBusy = true;
+      error = null;
+    });
+    try {
+      final since = await _api.pauseTrip(_token, current.id);
+      if (_disposed || trip?.id != current.id) return;
+      final pausedTrip = trip!.withPause(since);
+      unawaited(_saveTrip(pausedTrip));
+      _clearPauseState();
+      _update(() {
+        trip = pausedTrip;
+        notice = null;
+      });
+    } on ApiException catch (e) {
+      if (_disposed) return;
+      if (e.statusCode == 401) {
+        error = e.message;
+        _sessionClosed();
+      } else if (e.statusCode == 404 || e.statusCode == 409) {
+        _closedRemotely(e.message);
+      } else {
+        _update(() => error = e.message);
+      }
+    } finally {
+      pauseBusy = false;
+      _notify();
+    }
+  }
+
+  /// Resumes recording right away, also without connection; the server is
+  /// told now or on a later upload cycle.
+  Future<void> resume() async {
+    final current = trip;
+    if (current == null || status != TripStatus.active || !paused) return;
+    final resumed = current.withPause(null);
+    unawaited(_saveTrip(resumed));
+    _clearPauseState();
+    _update(() {
+      trip = resumed;
+      error = null;
+      _resumePending = true;
+    });
+    await _syncPause();
+  }
+
+  void _clearPauseState() {
+    pausedMotionKmh = null;
+    _fastSamples = 0;
+    _pausePosition = null;
+    _lastReminderAt = null;
+    _unreportedMotionKmh = null;
+    _resumePending = false;
+  }
+
+  /// Reports a pending resume or detected movement. Failures are retried on
+  /// the next upload cycle or fast sample.
+  Future<void> _syncPause() => _syncingPause ??= _sendPauseState().whenComplete(
+    () => _syncingPause = null,
+  );
+
+  Future<void> _sendPauseState() async {
+    final current = trip;
+    if (current == null || sessionExpired || _disposed) return;
+    try {
+      if (_resumePending) {
+        await _api.resumeTrip(_token, current.id);
+        _resumePending = false;
+      }
+      final speed = _unreportedMotionKmh;
+      if (speed != null && paused) {
+        await _api.reportPausedMovement(_token, current.id, speed);
+        _unreportedMotionKmh = null;
+      }
+    } on ApiException catch (e) {
+      if (_disposed) return;
+      if (e.statusCode == 401) {
+        error = e.message;
+        _sessionClosed();
+      } else if (e.statusCode != null && e.statusCode! < 500) {
+        // The trip is finished or no longer paused on the server: nothing to sync.
+        _resumePending = false;
+        _unreportedMotionKmh = null;
+      }
+    }
+  }
+
+  /// Uses only the motion of [position]; nothing is stored or sent.
+  Future<void> _checkPausedMotion(Position position) async {
+    final speed = _pausedSpeedKmh(position);
+    _pausePosition = position;
+    if (speed == null) return;
+    if (speed < pauseMotionKmh) {
+      _fastSamples = 0;
+      return;
+    }
+    if (++_fastSamples < _motionSamples) return;
+    final firstDetection = pausedMotionKmh == null;
+    pausedMotionKmh = speed;
+    if (firstDetection) _unreportedMotionKmh = speed;
+    final now = DateTime.now();
+    final last = _lastReminderAt;
+    if (last == null || now.difference(last) >= _reminderEvery) {
+      _lastReminderAt = now;
+      try {
+        await _remindPause(speed);
+      } catch (_) {
+        // The warning on screen remains.
+      }
+    }
+    _notify();
+    if (_unreportedMotionKmh != null) await _syncPause();
+  }
+
+  /// Lower bound of the speed in km/h, or null when the fix cannot tell.
+  double? _pausedSpeedKmh(Position position) {
+    final age = DateTime.now().difference(position.timestamp);
+    if (age > const Duration(seconds: 30)) return null;
+    if (position.speedAccuracy > 0 && position.speed >= 0) {
+      return max(0.0, position.speed - position.speedAccuracy) * 3.6;
+    }
+    final previous = _pausePosition;
+    if (previous == null || position.accuracy > 50 || previous.accuracy > 50) {
+      return null;
+    }
+    final seconds =
+        position.timestamp.difference(previous.timestamp).inMilliseconds / 1000;
+    if (seconds <= 0 || seconds > 30) return null;
+    final meters =
+        Geolocator.distanceBetween(
+          previous.latitude,
+          previous.longitude,
+          position.latitude,
+          position.longitude,
+        ) -
+        position.accuracy -
+        previous.accuracy;
+    return max(0.0, meters) / seconds * 3.6;
   }
 
   /// Blocking problem from the last action (start, end or session).
@@ -160,6 +340,7 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
       if (_disposed) return;
       final started = info.startedAt ?? DateTime.now();
       unawaited(_saveTrip(info.withStart(started)));
+      _clearPauseState();
       _update(() {
         trip = info;
         status = TripStatus.active;
@@ -230,6 +411,7 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
     }
     if (_disposed || info == null || status != TripStatus.idle) return;
     final resumed = info;
+    _clearPauseState();
     _update(() {
       trip = resumed;
       status = TripStatus.active;
@@ -266,6 +448,7 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
       await _api.endTrip(_token, trip!.id);
       if (_disposed) return;
       unawaited(_forgetTrip());
+      _clearPauseState();
       _update(() {
         status = TripStatus.idle;
         trip = null;
@@ -380,6 +563,7 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
       _ticksToWait--;
       return;
     }
+    await _syncPause();
     await _flush();
     if (status == TripStatus.idle && pendingCount == 0) _stopTimer();
   }
@@ -419,6 +603,7 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _record(Position position) async {
     final tripId = trip?.id;
     if (_disposed || tripId == null || status != TripStatus.active) return;
+    if (paused) return _checkPausedMotion(position);
     try {
       final flags = assessPosition(position, lastPosition, DateTime.now());
       final previous = lastPosition;
@@ -560,6 +745,7 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
   void _closedRemotely(String message) {
     _stopWatching();
     unawaited(_forgetTrip());
+    _clearPauseState();
     status = TripStatus.idle;
     trip = null;
     startedAt = null;
