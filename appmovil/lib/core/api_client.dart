@@ -166,6 +166,13 @@ class ApiClient {
     );
   }
 
+  Future<void> sendSos(String token, String tripId) async {
+    final data = await _post('trips/${Uri.encodeComponent(tripId)}/sos', token, const {});
+    if (data['recorded'] != true) {
+      throw const ApiException('No se confirmó el SOS. Contacta a tu central por teléfono.');
+    }
+  }
+
   Future<void> endTrip(String token, String tripId) async {
     final data = await _post(
       'trips/${Uri.encodeComponent(tripId)}/end',

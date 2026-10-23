@@ -18,6 +18,10 @@ export function ControlIcon() {
   return <Icon><path d="M4 19a9 9 0 1 1 16 0H4Z" /><path d="m12 13 4-5M5 13h1M12 5v1M18 13h1" /><circle cx="12" cy="13" r="1" /></Icon>;
 }
 
+export function MailIcon() {
+  return <Icon><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 6 9 7 9-7" /></Icon>;
+}
+
 export function TruckIcon() {
   return <Icon><path d="M2 6.5A1.5 1.5 0 0 1 3.5 5H14v11H2V6.5Z" /><path d="M14 9h4l3 3.5V16h-7V9Z" />
     <circle cx="6.5" cy="17.5" r="2" /><circle cx="17.5" cy="17.5" r="2" /></Icon>;

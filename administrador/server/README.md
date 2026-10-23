@@ -1,5 +1,8 @@
 # Configuracion privada del servidor
 
+La configuración de correos del panel está documentada en
+[Notificaciones por EmailJS](notifications/README.md).
+
 Las credenciales locales viven en administrador/.env.local, excluido de Git.
 Para otro equipo, copiar administrador/.env.example a administrador/.env.local
  y completar MONGODB_URI. En producción usar los secretos del hosting.

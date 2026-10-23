@@ -185,3 +185,18 @@ Consultar [GRAPHIFY.md](../documentacion/GRAPHIFY.md) y `AGENTS.md` para su uso.
 - [Preparacion Android](https://docs.flutter.dev/platform-integration/android/setup)
 - [Android SDK Command-line Tools](https://developer.android.com/studio#command-tools)
 - [Notas del entorno original](../documentacion/FLUTTER.md)
+## Finalización de viajes y ubicaciones pendientes
+
+«Terminar viaje» detiene la captura, espera las escrituras locales en curso
+(máximo 30 segundos) y solicita el cierre a la API sin esperar a vaciar la cola
+GPS. Solo marca el viaje como finalizado cuando el servidor lo confirma. Si el
+cierre falla, vuelve al estado activo y permite reintentar.
+
+Las ubicaciones pendientes permanecen en el almacén existente y se reintentan
+sin reiniciar el GPS del viaje cerrado. El backend acepta muestras anteriores
+a la hora de cierre. Un lote fallido, incluso de un viaje anterior, ya no impide
+enviar la solicitud de cierre. Sigue haciendo falta conexión para confirmar el
+cierre; este cambio no añade cierre offline ni corrige por sí solo lotes inválidos.
+
+Verificación: `flutter test test/trip_home_test.dart` cubre cierre con envíos
+fallidos o en curso, doble pulsación y reintento del cierre después de perder red.

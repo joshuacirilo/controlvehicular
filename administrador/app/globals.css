@@ -292,3 +292,12 @@ body:has(.dashboard-detail-dialog[open]) { overflow: hidden; }
 .live-plate-search input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .live-plate-search button { text-align: left; cursor: pointer; }
 .live-speed-sidebar .pagination { flex-wrap: wrap; gap: 8px; }
+.email-settings { max-width: 850px; }
+.email-settings .account-fields { grid-template-columns: 1fr; }
+.email-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.email-toggle input { width: 20px; height: 20px; accent-color: var(--brand-blue); }
+.email-actions { display: grid; gap: 12px; margin-top: 24px; }
+.email-settings .pagination-button { margin-top: 12px; }
+.email-settings button:disabled { opacity: .55; cursor: not-allowed; }
+.incident-sos { margin: 12px 0; padding: 16px; border: 2px solid #b91c1c; border-radius: 12px; background: #fff1f2; color: #881337; overflow-wrap: anywhere; }
+.incident-item { padding: 16px 0; border-bottom: 1px solid #e2e8f0; overflow-wrap: anywhere; }

@@ -27,7 +27,7 @@ export async function POST(request: Request) {
         : adminJson({ message: 'Usuario o contraseña incorrectos.' }, 401);
     }
     await users.updateOne({ _id: check.account._id }, { $set: { lastLoginAt: new Date() } });
-    await startAdminSession(check.account._id);
+    await startAdminSession(check.account._id, check.account.sessionVersion ?? 0);
     return adminJson({ user: toAdminUser(check.account) });
   } catch (error) {
     console.error('[admin] login failed', (error as Error)?.name, (error as { code?: unknown })?.code);

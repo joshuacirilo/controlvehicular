@@ -100,6 +100,9 @@ class _FakeServer {
     if (path == '/api/trips/trip-1/end') {
       return http.Response('{"estado":"finalizado"}', 200, headers: _json);
     }
+    if (path == '/api/trips/trip-1/sos') {
+      return http.Response('{"recorded":true,"incidentId":"sos-1"}', 200, headers: _json);
+    }
     fail('Unexpected request $path');
   }
 }
@@ -178,6 +181,35 @@ Future<void> _finish(WidgetTester tester, TripTracker tracker) async {
 const _tick = Duration(seconds: 5);
 
 void main() {
+  testWidgets('SOS requires confirmation and does not close the trip', (tester) async {
+    final (server, tracker) = await _pumpTrip(tester);
+    await tester.tap(find.text('SOS · Emergencia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancelar'));
+    await tester.pumpAndSettle();
+    expect(server.requests.where((r) => r.url.path.endsWith('/sos')), isEmpty);
+    await tester.tap(find.text('SOS · Emergencia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enviar SOS'));
+    await tester.pumpAndSettle();
+    expect(server.requests.where((r) => r.url.path.endsWith('/sos')), hasLength(1));
+    expect(tracker.status, TripStatus.active);
+    expect(server.ends, isEmpty);
+    expect(find.text('SOS registrado en la central. Contacta también por teléfono.'), findsOneWidget);
+    await _finish(tester, tracker);
+  });
+
+  testWidgets('SOS offline reports unconfirmed and preserves the active trip', (tester) async {
+    final (server, tracker) = await _pumpTrip(tester);
+    server.offline = true;
+    expect(await tracker.sendSos(), false);
+    expect(tracker.status, TripStatus.active);
+    expect(tracker.sendingSos, false);
+    server.offline = false;
+    expect(await tracker.sendSos(), true);
+    await _finish(tester, tracker);
+  });
+
   testWidgets(
     'A slow upload does not stop capture or start duplicate uploads',
     (tester) async {
@@ -406,25 +438,68 @@ void main() {
     tracker.dispose();
   });
 
-  testWidgets('Trip stays active while samples cannot be delivered', (
-    tester,
-  ) async {
-    final (server, tracker) = await _pumpTrip(tester);
-    server.failingPings = 100;
-    await tester.pump(_tick);
-    await tester.tap(find.text('Terminar viaje'));
-    await tester.pump(const Duration(milliseconds: 10));
-    expect(server.ends, isEmpty);
-    expect(tracker.status, TripStatus.active);
-    expect(find.textContaining('sin enviar'), findsOneWidget);
+  testWidgets(
+    'Trip closes despite failed uploads and retains samples for retry',
+    (tester) async {
+      final (server, tracker) = await _pumpTrip(tester);
+      server.failingPings = 100;
+      await tester.pump(_tick);
+      await tester.tap(find.text('Terminar viaje'));
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(server.ends, hasLength(1));
+      expect(tracker.status, TripStatus.idle);
+      expect(tracker.pendingCount, greaterThan(0));
+      final pending = tracker.pendingCount;
+      final fixes = _fix;
 
-    server.failingPings = 0;
-    await tester.tap(find.text('Terminar viaje'));
-    await tester.pump(const Duration(milliseconds: 10));
-    expect(server.ends, hasLength(1));
-    expect(tracker.status, TripStatus.idle);
-    await _finish(tester, tracker);
-  });
+      server.failingPings = 0;
+      await tester.pump(_tick * 20);
+      expect(server.ends, hasLength(1));
+      expect(tracker.status, TripStatus.idle);
+      expect(tracker.pendingCount, lessThan(pending));
+      expect(_fix, fixes);
+      await _finish(tester, tracker);
+    },
+  );
+
+  testWidgets(
+    'A pending upload does not block closing or permit duplicate closes',
+    (tester) async {
+      final (server, tracker) = await _pumpTrip(tester);
+      server.pingGate = Completer<void>();
+      await tester.pump(_tick);
+      expect(server.pings, hasLength(1));
+      final close = tracker.end();
+      await tracker.end();
+      await tester.pump(const Duration(milliseconds: 10));
+      await close;
+      expect(server.ends, hasLength(1));
+      expect(tracker.status, TripStatus.idle);
+      expect(tracker.pendingCount, 1);
+      server.pingGate!.complete();
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(tracker.pendingCount, 0);
+      await _finish(tester, tracker);
+    },
+  );
+
+  testWidgets(
+    'Failed close stays active and allows retry when network returns',
+    (tester) async {
+      final (server, tracker) = await _pumpTrip(tester);
+      server.offline = true;
+      await tester.tap(find.text('Terminar viaje'));
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(tracker.status, TripStatus.active);
+      expect(tracker.error, isNotNull);
+      expect(tracker.trip, isNotNull);
+      server.offline = false;
+      await tester.tap(find.text('Terminar viaje'));
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(tracker.status, TripStatus.idle);
+      await _finish(tester, tracker);
+    },
+  );
 
   testWidgets(
     'Closed session stops tracking, is forgotten and asks to log in',
