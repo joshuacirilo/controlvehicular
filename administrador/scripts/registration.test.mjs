@@ -3,10 +3,23 @@ import test from 'node:test';
 import QRCode from 'qrcode';
 import { PNG } from 'pngjs';
 import jsQR from 'jsqr';
-import { parseRegistration, registrationQr } from '../lib/registration.ts';
+import { registerHooks } from 'node:module';
+registerHooks({ resolve(specifier, context, next) {
+  if (specifier.startsWith('@/')) return next(new URL(`../${specifier.slice(2)}.ts`, import.meta.url).href, context);
+  return next(specifier, context);
+} });
+const { parseRegistration, registrationQr } = await import('../lib/registration.ts');
 
 const truck = { kind: 'truck', placa: ' p123abc ', modelo: 'Camión', password: 'QR-test-123!' };
-const pilot = { kind: 'pilot', username: ' Piloto.Test ', nombre: 'Piloto de prueba', licencia: 'abc-12', telefono: '+502 5555 1234', password: 'QR-test-123!' };
+const pilot = { kind: 'pilot', username: ' Piloto.Test ', email: 'pilot@example.invalid', nombre: 'Piloto de prueba', licencia: 'abc-12', telefono: '+502 5555 1234', password: 'QR-test-123!' };
+
+test('pilot email is required and administrators have their own validation', () => {
+  for (const email of [undefined, '', 'invalid', 'x@y.com,z@y.com', 'pilot@controlvehicular.local']) assert.equal(parseRegistration({...pilot,email}).ok,false);
+  const admin = {kind:'admin',username:'admin.new',nombre:'Admin',email:'admin@EXAMPLE.invalid',password:'secure-password-123'};
+  assert.equal(parseRegistration(admin).value.email,'admin@example.invalid');
+  assert.equal(parseRegistration({...admin,password:'short123'}).ok,false);
+  assert.equal('licencia' in parseRegistration(admin).value,false);
+});
 
 test('normalizes identifiers without changing passwords', () => {
   const t = parseRegistration(truck);

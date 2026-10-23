@@ -25,7 +25,8 @@ export async function requestPasswordReset(email: string) {
     await takeGate('provider', 1100);
     const token = randomBytes(32).toString('base64url');
     const resetUrl = appUrl(`/restablecer#token=${token}`);
-    await users.updateOne({ _id: user._id, activo: true }, { $set: { passwordReset: { hash: digest(token), expiresAt: new Date(Date.now() + 15 * 60000) } } });
+    const saved = await users.updateOne({ _id: user._id, activo: true, email: user.email, passwordHash: user.passwordHash }, { $set: { passwordReset: { hash: digest(token), expiresAt: new Date(Date.now() + 15 * 60000) } } });
+    if (!saved.matchedCount) return;
     await sendNotification({ to_email: user.email, subject: 'Restablecer contraseña', title: 'Recuperación de contraseña',
       message: 'Recibimos una solicitud para restablecer tu contraseña.',
       details: 'El enlace expira en 15 minutos y solo puede utilizarse una vez. Si no solicitaste el cambio, ignora este mensaje.',

@@ -20,6 +20,11 @@ const { advanceMotion } = await import('../server/notifications/incident-rules.t
 const { evaluateTripIncidents, createSos, dispatchIncident } = await import('../server/notifications/incidents.ts');
 const { requestPasswordReset, completePasswordReset } = await import('../server/auth/password-reset.ts');
 const { verifyPassword } = await import('../server/auth/password.ts');
+const { hashPassword } = await import('../server/auth/password.ts');
+const { updateProfile } = await import('../server/accounts/profile.ts');
+const { changeProfileEmail } = await import('../server/accounts/profile-email.ts');
+const profileEmailRoute = await import('../app/api/profile/email/route.ts');
+const profileRoute = await import('../app/api/profile/route.ts');
 const { getAdmin } = await import('../server/auth/admin.ts');
 const { signToken } = await import('../server/auth/token.ts');
 const forgot = await import('../app/api/auth/password/forgot/route.ts');
@@ -168,4 +173,90 @@ test('public recovery does not reveal existing accounts; admin feed and SOS enfo
   assert.equal(response.status,200);assert.equal((await response.json()).recorded,true);
   tables.users[0].rol='administrador';globalThis.token=signToken({sub:userId.toHexString(),role:'administrador',exp:Math.floor(Date.now()/1000)+60,ver:0});
   assert.ok(await getAdmin());tables.users[0].sessionVersion=1;assert.equal(await getAdmin(),null);
+});
+
+async function profileAccount() {
+  Object.assign(tables.users[0], { rol: 'administrador', username: 'admin', nombre: 'Administrador', passwordHash: await hashPassword('current-password-123') });
+  return { id: userId.toHexString(), username: 'admin', nombre: 'Administrador', email: tables.users[0].email };
+}
+test('profile changes only authenticated account, normalizes usernames and rejects duplicates',async()=>{
+  const admin=await profileAccount();
+  tables.users.push({_id:new ObjectId(),username:'occupied',rol:'conductor',activo:true});
+  const input={action:'profile',nombre:' Nuevo Nombre ',username:'New.Admin',currentPassword:'current-password-123'};
+  assert.equal((await updateProfile(admin,{...input,username:'OCCUPIED'})).status,409);
+  assert.equal((await updateProfile(admin,{...input,id:new ObjectId().toHexString()})).status,400);
+  const result=await updateProfile(admin,input);assert.equal(result.status,200);
+  assert.equal(result.body.user.username,'new.admin');assert.equal(result.body.user.nombre,'Nuevo Nombre');
+  assert.equal(tables.users[0].email,admin.email);assert.equal(tables.users[1].username,'occupied');
+  assert.equal(JSON.stringify(result).includes('passwordHash'),false);
+});
+test('concurrent profile renames cannot claim the same username',async()=>{
+  const admin=await profileAccount(), otherId=new ObjectId();
+  tables.users.push({...clone(tables.users[0]),_id:otherId,username:'other',email:'other@example.invalid'});
+  const input={action:'profile',nombre:'Nombre',username:'shared',currentPassword:'current-password-123'};
+  const results=await Promise.all([updateProfile(admin,input),updateProfile({...admin,id:otherId.toHexString()},input)]);
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+  assert.equal(tables.users.filter(u=>u.username==='shared').length,1);
+});
+test('profile password checks lock repeated guesses and password changes revoke old sessions and reset tokens',async()=>{
+  const admin=await profileAccount();
+  const input={action:'password',currentPassword:'current-password-123',newPassword:'new-password-123456'};
+  assert.equal((await updateProfile(admin,{...input,newPassword:'short'})).status,400);
+  for(let n=0;n<5;n++)assert.equal((await updateProfile(admin,{...input,currentPassword:'wrong'})).status,400);
+  assert.equal((await updateProfile(admin,input)).status,429);
+  tables.users[0].lockedUntil=new Date(0);tables.users[0].passwordReset={hash:'old',expiresAt:new Date(Date.now()+60000)};
+  assert.equal((await updateProfile(admin,input)).status,200);
+  assert.equal(tables.users[0].sessionVersion,1);assert.equal(tables.users[0].passwordReset,undefined);
+  assert.ok(await verifyPassword(input.newPassword,tables.users[0].passwordHash));
+  assert.equal(await verifyPassword(input.currentPassword,tables.users[0].passwordHash),false);
+});
+test('profile endpoint rejects anonymous, conductor and cross-origin writes',async()=>{
+  const req=site=>new Request('https://fleet.example.invalid/api/profile',{method:'PUT',headers:{'content-type':'application/json','sec-fetch-site':site},body:'{}'});
+  assert.equal((await profileRoute.PUT(req('same-origin'))).status,401);
+  globalThis.token=signToken({sub:userId.toHexString(),role:'conductor'});
+  assert.equal((await profileRoute.PUT(req('same-origin'))).status,401);
+  await profileAccount();globalThis.token=signToken({sub:userId.toHexString(),role:'administrador',exp:Math.floor(Date.now()/1000)+60,ver:0});
+  assert.equal((await profileRoute.PUT(req('cross-site'))).status,403);
+  assert.equal((await profileRoute.PUT(req('same-origin'))).status,400);
+});
+
+test('profile email stays unchanged until verification; code is private and single use',async()=>{
+  const admin=await profileAccount();
+  tables.users[0].passwordReset={hash:'old-reset'};
+  const result=await changeProfileEmail(admin,{action:'request',email:'new@example.invalid',currentPassword:'current-password-123'});
+  assert.equal(result.verified,false);assert.equal(tables.users[0].email,admin.email);
+  assert.equal(sent[0].template_id,'fake-NOTIFICATION_TEMPLATE_ID');assert.equal(sent[0].template_params.to_email,'new@example.invalid');
+  const code=sent[0].template_params.message.match(/\b\d{6}\b/)[0];
+  assert.equal(JSON.stringify(result).includes(code),false);assert.equal(tables.users[0].pendingEmail.code,undefined);
+  assert.equal((await changeProfileEmail(admin,{action:'verify',code})).verified,true);
+  assert.equal(tables.users[0].email,'new@example.invalid');assert.equal(tables.users[0].passwordReset,undefined);
+  await assert.rejects(changeProfileEmail(admin,{action:'verify',code}),e=>e.status===400);
+});
+test('profile email rejects duplicates, invalid input, expired codes and password changes',async()=>{
+  const admin=await profileAccount();
+  const request={action:'request',email:'new@example.invalid',currentPassword:'current-password-123'};
+  tables.users.push({_id:new ObjectId(),email:'taken@example.invalid'});
+  await assert.rejects(changeProfileEmail(admin,{...request,email:'taken@example.invalid'}),e=>e.status===409);
+  await assert.rejects(changeProfileEmail(admin,{...request,email:'not-an-email'}),e=>e.status===400);
+  await assert.rejects(changeProfileEmail(admin,{...request,currentPassword:'wrong'}),e=>e.status===400);
+  await changeProfileEmail(admin,request);
+  const code=sent[0].template_params.message.match(/\b\d{6}\b/)[0];
+  const expiry=tables.users[0].pendingEmail.expiresAt;
+  tables.users[0].pendingEmail.expiresAt=new Date(0);
+  await assert.rejects(changeProfileEmail(admin,{action:'verify',code}),e=>e.status===400);
+  tables.users[0].pendingEmail.expiresAt=expiry;tables.users[0].passwordHash='changed';
+  await assert.rejects(changeProfileEmail(admin,{action:'verify',code}),e=>e.status===409);
+  assert.equal(tables.users[0].email,admin.email);
+});
+test('profile email caps guesses, preserves old email on provider failure and requires admin',async()=>{
+  const admin=await profileAccount();
+  failProvider=true;
+  await assert.rejects(changeProfileEmail(admin,{action:'request',email:'new@example.invalid',currentPassword:'current-password-123'}),e=>e.status===502);
+  assert.equal(tables.users[0].email,admin.email);
+  const code=sent[0].template_params.message.match(/\b\d{6}\b/)[0], wrong=code==='000000'?'111111':'000000';
+  for(let i=0;i<5;i++)await assert.rejects(changeProfileEmail(admin,{action:'verify',code:wrong}),e=>e.status===400);
+  await assert.rejects(changeProfileEmail(admin,{action:'verify',code}),e=>e.status===400);
+  const req=site=>new Request('https://fleet.example.invalid/api/profile/email',{method:'POST',headers:{'content-type':'application/json','sec-fetch-site':site},body:'{}'});
+  assert.equal((await profileEmailRoute.POST(req('same-origin'))).status,401);
+  assert.equal((await profileEmailRoute.POST(req('cross-site'))).status,403);
 });

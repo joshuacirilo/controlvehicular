@@ -132,10 +132,12 @@ caracteres `[A-Za-z0-9_-]`) debe conservarse al reintentar: el indice unico
   404 viaje inexistente, 409 conflicto, 429 camion bloqueado por intentos fallidos,
   503 base de datos no disponible.
 
-## Registro de camiones y pilotos y descarga de QR
+## Registro de camiones, pilotos y administradores
 
 `/cuentas` permite registrar un camión (placa, modelo, contraseña) o un piloto
-(usuario, nombre, licencia, teléfono, contraseña). Cada página comprueba `getAdmin()`.
+(usuario, nombre, correo obligatorio, licencia, teléfono, contraseña), además de una sección
+seleccionable con el botón Administrador (nombre, usuario, correo y contraseña de 12–128 caracteres).
+Cada página comprueba `getAdmin()`. Los administradores se crean sin QR ni registro de conductor.
 Hay un enlace desde `/camiones`. Al guardar se presenta un QR descargable en PNG.
 El PNG se genera localmente en el navegador y se mantiene solo en memoria: descargarlo
 antes de salir o crear otro registro. No se guardan contraseñas recuperables ni imágenes
@@ -144,14 +146,18 @@ QR en Atlas. El QR contiene credenciales y debe entregarse únicamente a su dest
 `POST /api/accounts`, cookie de administrador y mismo origen, recibe JSON:
 
 - Camión: `{kind:"truck", placa, modelo, password}`.
-- Piloto: `{kind:"pilot", username, nombre, licencia, telefono, password}`.
-- 201: `{id, label}`; 400: datos inválidos; 409: placa, usuario o licencia duplicados;
+- Piloto: `{kind:"pilot", username, nombre, email, licencia, telefono, password}`.
+- Administrador: `{kind:"admin", username, nombre, email, password}`.
+- 201: `{id, label}`; 400: datos inválidos; 409: placa, usuario, correo o licencia duplicados;
   401: sin sesión; 403: origen no permitido; 503: fallo del servicio.
 
 Las contraseñas usan scrypt. Para pilotos se crean `users` y `drivers` en una transacción;
-el rol siempre es `conductor`. El correo interno es `username@controlvehicular.local`:
-el índice único de correo existente protege altas concurrentes del mismo usuario desde
-este formulario. No se crean índices ni se modifican validadores.
+su rol siempre es `conductor`; para `kind:"admin"` el servidor asigna `administrador`.
+El correo proporcionado se guarda en `users.email` para inicio de sesión y recuperación.
+No se generan correos ficticios para cuentas nuevas ni se alteran cuentas existentes.
+La creación no verifica automáticamente la propiedad del correo; el administrador debe
+comprobar el destinatario al registrar. El índice único de correo protege duplicados;
+`usernameLocks` serializa la creación y edición de nombres de usuario en el panel.
 El QR usa `{placa,password}` o `{username,password}`, compatible con Flutter.
 
 Pruebas: `node --test scripts/registration.test.mjs scripts/register-account.test.mjs`.
@@ -265,3 +271,21 @@ se actualiza en las consultas siguientes sin mover continuamente el mapa. Puede
 reenfocarse o quitarse la selección; desaparece del mapa si termina el viaje.
 El trazado incluye todos los puntos originales, no implica que sean precisos.
 Pruebas: `node --test scripts/live-speed.test.mjs scripts/live-route.test.mjs`.
+
+## Perfil del administrador
+
+`/perfil` permite actualizar nombre y usuario, y cambiar contraseña. `PUT /api/profile`
+requiere sesión administrativa activa y mismo origen. Acepta `{action:"profile",nombre,username,currentPassword}`
+o `{action:"password",currentPassword,newPassword}`; no acepta IDs, roles ni correo para modificar.
+La contraseña actual se verifica con el bloqueo de intentos existente. La nueva exige 12–128 caracteres;
+se almacena con scrypt, revoca sesiones por `sessionVersion` y elimina enlaces pendientes de recuperación.
+El correo se agrega o cambia mediante `POST /api/profile/email`, con sesión administrativa
+y mismo origen. `{action:"request",email,currentPassword}` envía un código al nuevo correo
+usando la plantilla de notificaciones; `{action:"verify",code}` confirma el cambio.
+El código vence en 10 minutos, admite cinco intentos y se almacena como hash. El correo
+anterior se conserva hasta verificar; el índice único de email impide duplicados. Confirmar
+el cambio elimina enlaces de recuperación anteriores. La solicitud tiene límites por cuenta
+y globales; no cambia el destinatario administrativo configurado para las alertas.
+Los nombres de usuario se normalizan a minúsculas y las
+transacciones comparten `usernameLocks` con el registro del panel para evitar duplicados concurrentes.
+Las herramientas administrativas externas deben conservar la unicidad al escribir usuarios directamente.

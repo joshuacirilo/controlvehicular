@@ -9,7 +9,7 @@ export default async function CuentasPage() {
   if (!await getAdmin()) redirect('/');
   return <div className="accounts-page">
     <header><h1 className="panel-title">Control de cuentas</h1>
-      <p className="layer-note">Registra camiones y pilotos y descarga sus códigos QR para la app.</p></header>
+      <p className="layer-note">Registra camiones y pilotos para la app, y crea administradores para el panel.</p></header>
     <AccountRegistration />
   </div>;
 }
