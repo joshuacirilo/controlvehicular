@@ -92,6 +92,24 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
   int droppedCount = 0;
   bool online = true;
   bool sessionExpired = false;
+  bool sendingSos = false;
+
+  /// Independent from GPS uploads and trip closure. Retrying returns the same open incident.
+  Future<bool> sendSos() async {
+    final current = trip;
+    if (current == null || sessionExpired || sendingSos) return false;
+    sendingSos = true;
+    notifyListeners();
+    try {
+      await _api.sendSos(_token, current.id);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      sendingSos = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
 
   /// Blocking problem from the last action (start, end or session).
   String? error;
@@ -224,8 +242,8 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
     _watchPositions();
   }
 
-  /// Delivers every pending sample and then closes the trip. The trip stays
-  /// active if either step fails.
+  /// Closes the trip independently of uploads. Samples captured before the
+  /// server's close time remain queued and can still be delivered afterwards.
   Future<void> end() async {
     if (status != TripStatus.active) return;
     _update(() {
@@ -234,22 +252,17 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
     });
     _stopTimer();
     _stopWatching();
-    await _sampling;
-    await Future.wait(_recordings.toList());
-    await _flush(ignoreBackoff: true);
-    if (_disposed || trip == null) return;
-    if (sessionExpired) {
-      _update(() => status = TripStatus.active);
-      return;
-    }
-    if (pendingCount > 0) {
-      _resume(
-        'Quedan $pendingCount ubicaciones sin enviar. '
-        'Revisa tu conexión e intenta terminar de nuevo.',
-      );
-      return;
-    }
     try {
+      // Finish local writes, but never wait for the upload queue to drain.
+      await (() async {
+        await _sampling;
+        await Future.wait(_recordings.toList());
+      })().timeout(const Duration(seconds: 30));
+      if (_disposed || trip == null) return;
+      if (sessionExpired) {
+        _update(() => status = TripStatus.active);
+        return;
+      }
       await _api.endTrip(_token, trip!.id);
       if (_disposed) return;
       unawaited(_forgetTrip());
@@ -259,6 +272,12 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
         startedAt = null;
         notice = null;
       });
+      // The upload timer also runs without an active trip; no GPS is restarted.
+      if (!sessionExpired) {
+        _ticksToWait = 0;
+        _startTimer();
+        unawaited(_uploadCycle());
+      }
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
         _update(() {
@@ -268,6 +287,16 @@ class TripTracker extends ChangeNotifier with WidgetsBindingObserver {
         _sessionClosed();
       } else {
         _resume(e.message);
+      }
+    } on TimeoutException {
+      if (!_disposed) {
+        _resume(
+          'No se pudo completar el guardado local. Intenta terminar de nuevo.',
+        );
+      }
+    } catch (_) {
+      if (!_disposed) {
+        _resume('No se pudo finalizar el viaje. Intenta de nuevo.');
       }
     }
   }

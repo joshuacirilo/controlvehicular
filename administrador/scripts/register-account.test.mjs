@@ -30,6 +30,7 @@ function fakeDatabase({ duplicateUser = false, driverError = null } = {}) {
   };
   globalThis.registrationTestClient = { startSession: () => session };
   globalThis.registrationTestDb = { collection: name => ({
+    async updateOne(_filter, _update, options) { assert.equal(name, 'usernameLocks'); assert.equal(options.session, session); return { matchedCount: 1 }; },
     async findOne() { return duplicateUser ? { _id: 'existing' } : null; },
     async insertOne(record, options) {
       if (name !== 'trucks') assert.equal(options.session, session);
@@ -39,13 +40,14 @@ function fakeDatabase({ duplicateUser = false, driverError = null } = {}) {
   }) };
   return { records, session };
 }
-const pilot = { kind: 'pilot', username: 'pilot.test', nombre: 'Piloto', licencia: 'ABC123', telefono: '55551234', password: 'Test-password-123!' };
+const pilot = { kind: 'pilot', username: 'pilot.test', email: 'pilot@example.invalid', nombre: 'Piloto', licencia: 'ABC123', telefono: '55551234', password: 'Test-password-123!' };
 
 test('creates linked pilot records with hashed credentials and conductor role', async () => {
   const { records, session } = fakeDatabase();
   const result = await registerAccount({ ...pilot, rol: 'administrador' });
   assert.equal(result.status, 201);
   assert.equal(records.users[0].rol, 'conductor');
+  assert.equal(records.users[0].email, pilot.email);
   assert.equal(records.users[0]._id.toHexString(), records.drivers[0].userId.toHexString());
   assert.equal(await verifyPassword(pilot.password, records.users[0].passwordHash), true);
   assert.equal('password' in records.users[0], false);
@@ -71,4 +73,15 @@ test('truck creation uses the existing QR identifier convention', async () => {
   assert.equal(result.status, 201);
   assert.equal(records.trucks[0].qrCode, 'TRUCK-P123ABC');
   assert.equal(await verifyPassword(pilot.password, records.trucks[0].passwordHash), true);
+});
+
+test('administrator creation stores a hashed password and no driver record', async () => {
+  const { records } = fakeDatabase();
+  const result = await registerAccount({kind:'admin',username:'new.admin',nombre:'Nuevo Admin',email:'admin@example.invalid',password:pilot.password,rol:'conductor'});
+  assert.equal(result.status,201);
+  assert.equal(records.users[0].rol,'administrador');
+  assert.equal(records.users[0].email,'admin@example.invalid');
+  assert.equal(records.drivers.length,0);
+  assert.equal(await verifyPassword(pilot.password,records.users[0].passwordHash),true);
+  assert.equal(JSON.stringify(result).includes(pilot.password),false);
 });

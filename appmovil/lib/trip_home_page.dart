@@ -46,6 +46,21 @@ class TripHomePage extends StatelessWidget {
   bool get _canLogout =>
       tracker.status == TripStatus.idle || tracker.sessionExpired;
 
+  Future<void> _sos(BuildContext context) async {
+    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+      title: const Text('¿Enviar SOS?'),
+      content: const Text('Avisaremos de una emergencia a tu central. Contacta también a emergencias o a tu central por teléfono. No esperes la confirmación del correo.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Enviar SOS'))],
+    ));
+    if (confirmed != true || !context.mounted) return;
+    final recorded = await tracker.sendSos();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(recorded
+      ? 'SOS registrado en la central. Contacta también por teléfono.'
+      : 'No se confirmó el SOS. Contacta por teléfono y vuelve a intentarlo cuando tengas conexión.')));
+  }
+
   /// The only way to end the session: it survives closing the app.
   Future<void> _logout(BuildContext context) async {
     if (!_canLogout) {
@@ -160,6 +175,13 @@ class TripHomePage extends StatelessWidget {
                       }, style: _bigLabel),
                     ),
                     if (tracker.trip != null) ...[
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed: !blocked && !tracker.sendingSos ? () => _sos(context) : null,
+                        style: FilledButton.styleFrom(backgroundColor: Colors.red.shade800, foregroundColor: Colors.white),
+                        icon: const Icon(Icons.sos),
+                        label: Text(tracker.sendingSos ? 'Registrando SOS…' : 'SOS · Emergencia'),
+                      ),
                       const SizedBox(height: 16),
                       _ActiveTripCard(tracker: tracker),
                     ] else if (tracker.pendingCount > 0 && !blocked) ...[

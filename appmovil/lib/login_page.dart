@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
@@ -391,6 +392,18 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                                   _busy ? 'Conectando...' : 'Ingresar',
                                 ),
                               ),
+                            ),
+                            TextButton(
+                              onPressed: _api == null ? null : () {
+                                final url = _api!.baseUrl.replace(path: '/recuperar', query: null, fragment: null).toString();
+                                showDialog<void>(context: context, builder: (context) => AlertDialog(
+                                  title: const Text('Recuperar contraseña'),
+                                  content: SelectableText('Abre esta dirección en tu navegador e ingresa el correo de tu cuenta:\n$url'),
+                                  actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
+                                    TextButton(onPressed: () async { await Clipboard.setData(ClipboardData(text: url)); }, child: const Text('Copiar enlace'))],
+                                ));
+                              },
+                              child: const Text('Olvidé mi contraseña'),
                             ),
                             const SizedBox(height: 12),
                             OutlinedButton.icon(

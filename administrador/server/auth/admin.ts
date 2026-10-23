@@ -54,9 +54,9 @@ export function isSameOrigin(request: Request) {
   }
 }
 
-export async function startAdminSession(userId: ObjectId) {
+export async function startAdminSession(userId: ObjectId, sessionVersion = 0) {
   const exp = Math.floor(Date.now() / 1000) + TTL_SECONDS;
-  const token = signToken<TokenClaims>({ sub: userId.toHexString(), role: 'administrador', exp });
+  const token = signToken<TokenClaims & { ver: number }>({ sub: userId.toHexString(), role: 'administrador', exp, ver: sessionVersion });
   (await cookies()).set(ADMIN_COOKIE, token, {
     httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: TTL_SECONDS,
   });
@@ -72,9 +72,9 @@ export async function getAdmin(): Promise<AdminUser | null> {
   if (!claims || typeof claims.sub !== 'string' || !ObjectId.isValid(claims.sub)) return null;
   const user = await (await usersCollection()).findOne(
     { _id: new ObjectId(claims.sub), rol: 'administrador', activo: true },
-    { projection: { email: 1, username: 1, nombre: 1 } },
+    { projection: { email: 1, username: 1, nombre: 1, sessionVersion: 1 } },
   );
-  return user && toAdminUser(user);
+  return user && (claims.ver ?? 0) === (user.sessionVersion ?? 0) ? toAdminUser(user) : null;
 }
 
 /** Authorizes an administrator and maps service results and database failures to HTTP responses. */

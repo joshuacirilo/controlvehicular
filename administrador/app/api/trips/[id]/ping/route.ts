@@ -2,6 +2,8 @@ import { preflight, readJsonObject, reply } from '@/server/http';
 import { handleDriverRequest, parseTripId } from '@/server/trips/handler';
 import { MAX_PINGS_PER_REQUEST, parsePing, type PingInput } from '@/server/trips/pings';
 import { recordPings } from '@/server/trips/service';
+import { after } from 'next/server';
+import { processTripNotifications } from '@/server/notifications/incidents';
 
 export const runtime = 'nodejs';
 
@@ -16,7 +18,11 @@ export async function POST(request: Request, ctx: RouteContext<'/api/trips/[id]/
   const now = new Date();
   const pings = raw.map(item => parsePing(item, now));
   if (pings.some(ping => ping === null)) return reply(request, { message: 'Datos de ubicación inválidos.' }, 400);
-  return handleDriverRequest(request, session => recordPings(session, tripId, pings as PingInput[]));
+  return handleDriverRequest(request, async session => {
+    const result = await recordPings(session, tripId, pings as PingInput[]);
+    if (result.ok) after(() => processTripNotifications(tripId));
+    return result;
+  });
 }
 
 export function OPTIONS(request: Request) {

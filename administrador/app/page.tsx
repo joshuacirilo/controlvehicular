@@ -1,5 +1,6 @@
 'use client';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
@@ -46,6 +47,7 @@ export default function Home() {
         {error && <p className="login-error" role="alert">{error}</p>}
         <button className="primary-button" disabled={busy}>{busy ? 'Conectando…' : 'Ingresar'}</button>
       </form>
+      <Link href="/recuperar">Olvidé mi contraseña</Link>
     </section>
   </main>;
 }
