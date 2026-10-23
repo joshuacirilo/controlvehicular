@@ -301,6 +301,14 @@ Con la misma regla (muestra de menos de 90 s y velocidad estrictamente mayor que
 límite), el marcador del camión se pinta en rojo con la velocidad en la etiqueta y el
 popup indica "Exceso de velocidad: X km/h (límite Y km/h)".
 
+SOS en el mapa: cada camión trae `sos: {id, desde} | null` (incidente de `trips.sosId`
+sin `acknowledgedAt`; `desde` en UTC ISO) y la respuesta incluye `sosRoutes: [{tripId, ruta}]`
+con la ruta completa de esos viajes en cada consulta, sin seleccionarlos (máximo 10). El
+marcador pasa a rojo con pulso y etiqueta "SOS", la ruta se dibuja en rojo, el mapa encuadra
+una vez cada SOS nuevo y la barra lateral muestra el aviso "SOS · Emergencia" con "Ver en
+el mapa". Todo desaparece al marcar el SOS como atendido en Notificaciones. El aviso global
+de SOS enlaza también a `/mapa`.
+
 Seleccionar una alerta destaca el camión y encuadra su ruta recibida. El recorrido
 se actualiza en las consultas siguientes sin mover continuamente el mapa. Puede
 reenfocarse o quitarse la selección; desaparece del mapa si termina el viaje.

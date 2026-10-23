@@ -39,7 +39,7 @@ export function IncidentFeed({ compact = false }: { compact?: boolean }) {
   const speeding = rows.filter(row => row.type === 'speed' && !row.acknowledged)
     .sort((a, b) => Date.parse(b.eventDate) - Date.parse(a.eventDate));
   if (compact) return <>
-    {emergencies.length > 0 && <div role="alert" className="incident-sos"><strong>{emergencies.length} SOS pendientes de atención</strong> · <Link href="/notificaciones">Ver emergencias</Link></div>}
+    {emergencies.length > 0 && <div role="alert" className="incident-sos"><strong>{emergencies.length} SOS pendientes de atención</strong> · <Link href="/mapa">Ver en el mapa</Link> · <Link href="/notificaciones">Ver emergencias</Link></div>}
     {speeding.length > 0 && <div role="alert" className="incident-speed">
       <strong>{speeding.length === 1 ? 'Exceso de velocidad sin atender' : `${speeding.length} excesos de velocidad sin atender`}</strong>
       <ul>{speeding.slice(0, BANNER_SPEED_ROWS).map(row => <li key={row.id}>

@@ -15,6 +15,14 @@ histórica contradictoria de las secciones posteriores. El código sigue siendo 
 fuente de verdad. El encargo actual es actualizar este documento para el siguiente
 agente; no hay autorización nueva para desplegar, empaquetar Android o cambiar infraestructura.
 
+### SOS en el mapa en vivo (23/10/2026)
+
+Con un SOS sin atender, `/mapa` muestra el aviso rojo "SOS · Emergencia" en la barra lateral, el
+marcador del camión en rojo (con pulso y etiqueta "SOS") y su ruta completa en rojo, y encuadra el
+SOS nuevo. `GET /api/trucks/live` añade `trucks[].sos` y `sosRoutes` (ver `server/README.md`).
+Se quita al marcarlo atendido. Verificado: 78 pruebas (1 nueva en `live-route.test.mjs`), lint, `tsc`,
+build. No verificado en navegador: en Atlas no hay ningún SOS abierto y no se creó uno.
+
 ### Alertas de exceso de velocidad (23/10/2026)
 
 Revisado: el límite vigente en Atlas es 100 km/h (`speedControls`, editable en `/control`); exceso es

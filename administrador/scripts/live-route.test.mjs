@@ -41,5 +41,41 @@ test('only loads the selected active trip route and replaces raw speed with the 
     assert.equal(response.route.tripId, id.toHexString());
     assert.deepEqual(response.route.ruta, [[14, -90], [14, -90]]);
     assert.equal(routeReads, 1);
+    assert.deepEqual(response.sosRoutes, []);
+    assert.equal(response.trucks[0].sos, null);
+  } finally { delete globalThis.liveRouteTestDb; }
+});
+
+test('trips with an open SOS always include their full route, read once even when selected', async () => {
+  const sosTrip = new ObjectId(), calm = new ObjectId();
+  const ping = seconds => ({ coords: { coordinates: [-90 + seconds / 1000, 14] }, precision: 5, timestamp: new Date(Date.UTC(2026, 9, 21, 12, 0, seconds)) });
+  const reads = [];
+  globalThis.liveRouteTestDb = { collection(name) {
+    if (name === 'trips') return { aggregate(pipeline) {
+      const lookup = pipeline.find(stage => stage.$lookup?.from === 'notificationIncidents').$lookup;
+      assert.equal(lookup.localField, 'sosId');
+      assert.deepEqual(lookup.pipeline[0], { $match: { acknowledgedAt: { $exists: false } } });
+      return { toArray: async () => [
+        { _id: sosTrip, truckId: new ObjectId(), inicio: ping(0).timestamp, truck: { placa: 'SOS1' }, driver: { nombre: 'A' },
+          ping: ping(10), recent: [ping(10), ping(5)], sos: { _id: 'incident-1', createdAt: new Date('2026-10-21T18:00:00Z') } },
+        { _id: calm, truckId: new ObjectId(), inicio: ping(0).timestamp, truck: { placa: 'OK1' }, driver: { nombre: 'B' },
+          ping: ping(10), recent: [ping(10), ping(5)] },
+      ] };
+    } };
+    return { find(filter) {
+      reads.push(filter.tripId.toHexString());
+      return { sort: () => ({ toArray: async () => [ping(0), ping(5), ping(10)] }) };
+    } };
+  } };
+  try {
+    const body = (await liveTrucks()).body;
+    assert.deepEqual(body.trucks.map(truck => truck.sos), [null, { id: 'incident-1', desde: '2026-10-21T18:00:00.000Z' }]);
+    assert.equal(body.route, null);
+    assert.deepEqual(body.sosRoutes.map(route => [route.tripId, route.ruta.length]), [[sosTrip.toHexString(), 3]]);
+    assert.deepEqual(reads, [sosTrip.toHexString()]);
+    reads.length = 0;
+    const selected = (await liveTrucks(sosTrip.toHexString())).body;
+    assert.equal(selected.route.tripId, sosTrip.toHexString());
+    assert.deepEqual(reads, [sosTrip.toHexString()]);
   } finally { delete globalThis.liveRouteTestDb; }
 });

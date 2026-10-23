@@ -13,12 +13,13 @@ export type LiveTrucksState = {
   error: string | null;
   limiteKmh: number | null;
   route: LiveRoute | null;
+  sosRoutes: LiveRoute[];
 };
 
 /** Polls the live fleet while the tab is visible; keeps the last data when a refresh fails. */
 export function useLiveTrucks(selectedTrip: string | null = null): LiveTrucksState {
   const router = useRouter();
-  const [state, setState] = useState<LiveTrucksState>({ trucks: [], updatedAt: null, error: null, limiteKmh: null, route: null });
+  const [state, setState] = useState<LiveTrucksState>({ trucks: [], updatedAt: null, error: null, limiteKmh: null, route: null, sosRoutes: [] });
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -40,7 +41,7 @@ export function useLiveTrucks(selectedTrip: string | null = null): LiveTrucksSta
           throw new Error(data?.message ?? 'No se pudo actualizar el mapa.');
         }
         if (current.signal.aborted) return;
-        setState({ trucks: data.trucks, updatedAt: Date.now(), error: null, limiteKmh: data.limiteKmh, route: data.route });
+        setState({ trucks: data.trucks, updatedAt: Date.now(), error: null, limiteKmh: data.limiteKmh, route: data.route, sosRoutes: data.sosRoutes ?? [] });
       } catch (error) {
         if (current.signal.aborted) return;
         const message = error instanceof TypeError ? 'Sin conexión con el servidor.' : (error as Error).message;

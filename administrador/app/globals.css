@@ -317,6 +317,15 @@ body:has(.dashboard-detail-dialog[open]) { overflow: hidden; }
 .truck-marker.is-speeding .truck-marker-label, .truck-marker.is-speeding .truck-marker-dot { background: var(--danger); }
 .truck-marker.is-speeding .truck-marker-dot { box-shadow: 0 0 0 3px #fecdca, 0 2px 8px rgb(217 45 32 / 0.6); }
 .truck-popup-speeding { margin: 6px 0; color: var(--danger); font-weight: 700; }
+.truck-marker.is-sos .truck-marker-label, .truck-marker.is-sos .truck-marker-dot { background: #b91c1c; }
+.truck-marker.is-sos .truck-marker-dot { width: 22px; height: 22px; box-shadow: 0 0 0 3px #fecaca, 0 2px 10px rgb(185 28 28 / 0.7); animation: sos-pulse 1.2s ease-in-out infinite; }
+@keyframes sos-pulse { 50% { box-shadow: 0 0 0 10px rgb(254 202 202 / 0.35), 0 2px 10px rgb(185 28 28 / 0.7); } }
+@media (prefers-reduced-motion: reduce) { .truck-marker.is-sos .truck-marker-dot { animation: none; } }
+.truck-popup-sos { margin: 6px 0; color: #b91c1c; font-weight: 700; }
+.live-sos-alert { display: grid; gap: 8px; padding: 14px; border: 2px solid #b91c1c; border-radius: 10px; background: #fff1f2; color: #881337; }
+.live-sos-alert h2 { font-size: 16px; color: #b91c1c; }
+.live-sos-alert ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.live-sos-alert li { display: grid; gap: 4px; justify-items: start; }
 .incident-speed { margin: 12px 0; padding: 16px; border: 2px solid var(--danger); border-radius: 12px; background: #fef3f2; color: #7a271a; overflow-wrap: anywhere; }
 .incident-speed ul { display: grid; gap: 6px; margin: 8px 0; padding: 0; list-style: none; }
 .incident-speed li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
